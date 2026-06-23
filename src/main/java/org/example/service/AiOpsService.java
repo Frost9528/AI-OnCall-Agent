@@ -40,6 +40,9 @@ public class AiOpsService {
     @Autowired(required = false)  // Mock 模式下才注册
     private QueryLogsTools queryLogsTools;
 
+    @Autowired
+    private org.example.agent.tool.DatabaseTools databaseTools;
+
     /**
      * 执行 AI Ops 告警分析流程
      *
@@ -130,11 +133,9 @@ public class AiOpsService {
      */
     private Object[] buildMethodToolsArray() {
         if (queryLogsTools != null) {
-            // Mock 模式：包含 QueryLogsTools
-            return new Object[]{dateTimeTools, internalDocsTools, queryMetricsTools, queryLogsTools};
+            return new Object[]{dateTimeTools, internalDocsTools, queryMetricsTools, queryLogsTools, databaseTools};
         } else {
-            // 真实模式：不包含 QueryLogsTools（由 MCP 提供日志查询功能）
-            return new Object[]{dateTimeTools, internalDocsTools, queryMetricsTools};
+            return new Object[]{dateTimeTools, internalDocsTools, queryMetricsTools, databaseTools};
         }
     }
 
