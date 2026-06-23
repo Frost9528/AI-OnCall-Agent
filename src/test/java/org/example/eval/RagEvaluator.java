@@ -106,8 +106,8 @@ public class RagEvaluator {
         double rejectionAccuracy = rejectCount > 0 ? (double) correctRejections / rejectCount : 1.0;
         long passed = results.stream().filter(EvalResult::passed).count();
 
-        return new EvalSummary(results.size(), answerCount, rejectCount,
-                avgRecall, avgPrecision, rejectionAccuracy, passed, results.size() - passed);
+        return new EvalSummary((int) results.size(), (int) answerCount, (int) rejectCount,
+                avgRecall, avgPrecision, rejectionAccuracy, (int) passed, (int) (results.size() - passed));
     }
 
     private String extractDocName(String metadata) {
