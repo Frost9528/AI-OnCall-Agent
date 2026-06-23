@@ -47,13 +47,15 @@ public class DatabaseTools {
 
         try {
             // 安全校验：只允许 SELECT
-            String trimmed = sql.trim().toUpperCase();
-            if (!trimmed.startsWith("SELECT")) {
-                return "{\"error\": \"仅支持 SELECT 查询\"}";
+            String trimmed = sql.trim();
+            String upper = trimmed.toUpperCase();
+            if (!upper.startsWith("SELECT") || upper.contains("INTO OUTFILE") || upper.contains("INTO DUMPFILE")) {
+                return "{\"success\": false, \"error\": \"仅支持 SELECT 查询\"}";
             }
 
-            // 自动加 LIMIT（如果没带）
-            if (!trimmed.contains("LIMIT")) {
+            // 自动加 LIMIT（如果没带），使用正则避免匹配到注释或字符串中的 'LIMIT'
+            // 只匹配不在引号内且作为独立关键字的 LIMIT
+            if (!upper.matches(".*\\bLIMIT\\s+\\d+\\b.*")) {
                 sql = sql + " LIMIT 50";
             }
 

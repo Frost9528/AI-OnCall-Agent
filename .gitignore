@@ -57,5 +57,7 @@ uploads/
 
 ### env
 src/main/resources/.env
-
+### 文档
 aiops-docs/
+
+docs/superpowers/specs/2026-06-23-superbizagent-refactoring-design.md
