@@ -1,0 +1,7 @@
+[
+  {"id":"NA-001","question":"公司年会在什么时候举办？","expected_behavior":"reject","reject_patterns":["没有找到","无法回答","没有相关信息","不在知识库"]},
+  {"id":"NA-002","question":"今年的年终奖什么时候发？","expected_behavior":"reject","reject_patterns":["没有找到","无法回答","没有相关信息","不在知识库"]},
+  {"id":"NA-003","question":"章三是谁？","expected_behavior":"reject","reject_patterns":["没有找到","无法回答","没有相关信息","不在知识库"]},
+  {"id":"NA-004","question":"公司福利有哪些？","expected_behavior":"reject","reject_patterns":["没有找到","无法回答","没有相关信息","不在知识库"]},
+  {"id":"NA-005","question":"这个季度的OKR是什么？","expected_behavior":"reject","reject_patterns":["没有找到","无法回答","没有相关信息","不在知识库"]}
+]

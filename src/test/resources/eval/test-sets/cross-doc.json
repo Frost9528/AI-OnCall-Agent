@@ -1,0 +1,6 @@
+[
+  {"id":"CD-001","question":"同时出现CPU和内存告警时应该先排查哪个？","required_docs":["cpu_high_usage.md","memory_high_usage.md"],"expected_key_points":["判断瓶颈类型","检查日志"]},
+  {"id":"CD-002","question":"如果服务响应慢且CPU高，可能的原因有哪些？","required_docs":["slow_response.md","cpu_high_usage.md"],"expected_key_points":["资源竞争","慢查询","代码效率"]},
+  {"id":"CD-003","question":"磁盘快满了且服务变慢，根因可能是什么？","required_docs":["disk_high_usage.md","slow_response.md"],"expected_key_points":["磁盘I/O瓶颈","日志量过大","索引碎片"]},
+  {"id":"CD-004","question":"服务不可用可能与哪些资源告警相关？","required_docs":["service_unavailable.md","cpu_high_usage.md","memory_high_usage.md"],"expected_key_points":["OOM导致重启","资源耗尽","健康检查失败"]}
+]

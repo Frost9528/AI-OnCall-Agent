@@ -1,0 +1,17 @@
+[
+  {"id":"FQ-001","question":"CPU使用率超过多少需要告警？","expected_answer":"80%","source_doc":"cpu_high_usage.md","category":"single-fact"},
+  {"id":"FQ-002","question":"CPU告警的处理步骤是什么？","expected_keywords":["确认Pod","检查负载","扩容"],"source_doc":"cpu_high_usage.md","category":"single-fact"},
+  {"id":"FQ-003","question":"内存使用率超过多少需要告警？","expected_answer":"85%","source_doc":"memory_high_usage.md","category":"single-fact"},
+  {"id":"FQ-004","question":"内存告警应该检查哪些指标？","expected_keywords":["JVM","堆内存","GC"],"source_doc":"memory_high_usage.md","category":"single-fact"},
+  {"id":"FQ-005","question":"磁盘使用率超过多少需要告警？","expected_answer":"90%","source_doc":"disk_high_usage.md","category":"single-fact"},
+  {"id":"FQ-006","question":"服务不可用的排查步骤是什么？","expected_keywords":["Pod状态","日志","端口"],"source_doc":"service_unavailable.md","category":"single-fact"},
+  {"id":"FQ-007","question":"慢响应的阈值是多少？","expected_answer":"3秒","source_doc":"slow_response.md","category":"single-fact"},
+  {"id":"FQ-008","question":"CPU告警的级别是什么？","expected_keywords":["critical","严重"],"source_doc":"cpu_high_usage.md","category":"single-fact"},
+  {"id":"FQ-009","question":"PaymentService在哪个命名空间运行？","expected_answer":"production","source_doc":"cpu_high_usage.md","category":"single-fact"},
+  {"id":"FQ-010","question":"订单服务OOM后应该检查什么？","expected_keywords":["堆转储","内存泄漏","GC"],"source_doc":"memory_high_usage.md","category":"single-fact"},
+  {"id":"FQ-011","question":"磁盘告警处理的第一步是什么？","expected_keywords":["确认分区","清理","扩容"],"source_doc":"disk_high_usage.md","category":"single-fact"},
+  {"id":"FQ-012","question":"服务不可用告警的级别是？","expected_answer":"CRITICAL","source_doc":"service_unavailable.md","category":"single-fact"},
+  {"id":"FQ-013","question":"慢响应问题可能的原因有哪些？","expected_keywords":["慢查询","资源竞争","下游依赖"],"source_doc":"slow_response.md","category":"single-fact"},
+  {"id":"FQ-014","question":"HighCPUUsage告警涉及哪个服务？","expected_answer":"payment-service","source_doc":"cpu_high_usage.md","category":"single-fact"},
+  {"id":"FQ-015","question":"内存告警涉及哪个命名空间？","expected_answer":"production","source_doc":"memory_high_usage.md","category":"single-fact"}
+]
