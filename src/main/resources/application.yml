@@ -21,9 +21,26 @@ milvus:
 
 # Spring AI Alibaba DashScope 配置
 spring:
+  datasource:
+    url: jdbc:h2:file:./data/superbizagent;DB_CLOSE_ON_EXIT=FALSE;MODE=MySQL
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.H2Dialect
+        format_sql: true
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
   ai:
     dashscope:
-      api-key: sk-xxx
+      api-key: sk-cf3acf5914c243a6b5f41afdddfa064e
       chat:
         options:
           timeout: 180000  # 超时时间180秒（3分钟）
@@ -52,7 +69,7 @@ spring:
 # 阿里云 DashScope Embedding API 配置
 dashscope:
   api:
-    key: sk-xxxx
+    key: sk-cf3acf5914c243a6b5f41afdddfa064e
   embedding:
     model: text-embedding-v4  # 阿里云文本向量化模型
 
