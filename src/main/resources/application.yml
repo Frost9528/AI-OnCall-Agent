@@ -40,7 +40,7 @@ spring:
       path: /h2-console
   ai:
     dashscope:
-      api-key: sk-cf3acf5914c243a6b5f41afdddfa064e
+      api-key: ${DASHSCOPE_API_KEY:sk-your-api-key-here}
       chat:
         options:
           timeout: 180000  # 超时时间180秒（3分钟）
@@ -69,7 +69,7 @@ spring:
 # 阿里云 DashScope Embedding API 配置
 dashscope:
   api:
-    key: sk-cf3acf5914c243a6b5f41afdddfa064e
+    key: ${DASHSCOPE_API_KEY:sk-your-api-key-here}
   embedding:
     model: text-embedding-v4  # 阿里云文本向量化模型
 

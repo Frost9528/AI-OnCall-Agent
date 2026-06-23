@@ -55,8 +55,9 @@ public class RagEvaluator {
         double precision = RecallCalculator.precisionAtK(retrievedDocNames,
                 tc.sourceDoc() != null ? List.of(tc.sourceDoc()) : List.of(), topK);
 
+        boolean passed = recall >= 0.5;
         return new EvalResult(tc.id(), tc.question(), "answer",
-                retrievedDocNames, recall, precision, true, false, true);
+                retrievedDocNames, recall, precision, false, false, passed);
     }
 
     public EvalResult evaluateCrossDoc(TestCase tc) {

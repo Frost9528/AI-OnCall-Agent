@@ -94,8 +94,9 @@ public class DatabaseTools {
             for (Map<String, Object> table : tables) {
                 String tableName = (String) table.get("TABLE_NAME");
                 // 获取行数
+                String safeTableName = "`" + tableName.replace("`", "``") + "`";
                 Integer count = jdbcTemplate.queryForObject(
-                        "SELECT COUNT(*) FROM " + tableName, Integer.class);
+                        "SELECT COUNT(*) FROM " + safeTableName, Integer.class);
                 table.put("ROW_COUNT", count != null ? count : 0);
 
                 // 获取列信息
