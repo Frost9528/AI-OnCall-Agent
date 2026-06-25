@@ -1,0 +1,30 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(C:/Users/Frost/.claude/plugins/cache/claude-plugins-official/superpowers/6.0.3/skills/subagent-driven-development/scripts/task-brief \"docs/superpowers/plans/2026-06-23-superbizagent-refactoring-plan.md\" 1)",
+      "Bash(mvn compile *)",
+      "Bash(git add *)",
+      "Bash(git commit -m 'chore: add JPA, MySQL, H2 and test dependencies *)",
+      "Bash(C:/Users/Frost/.claude/plugins/cache/claude-plugins-official/superpowers/6.0.3/skills/subagent-driven-development/scripts/review-package d7fbe77 *)",
+      "Bash(C:/Users/Frost/.claude/plugins/cache/claude-plugins-official/superpowers/6.0.3/skills/subagent-driven-development/scripts/task-brief \"docs/superpowers/plans/2026-06-23-superbizagent-refactoring-plan.md\" 2)",
+      "Bash(git commit -m 'chore: configure H2 datasource for session persistence *)",
+      "Bash(C:/Users/Frost/.claude/plugins/cache/claude-plugins-official/superpowers/6.0.3/skills/subagent-driven-development/scripts/review-package ffb9d0f *)",
+      "Bash(C:/Users/Frost/.claude/plugins/cache/claude-plugins-official/superpowers/6.0.3/skills/subagent-driven-development/scripts/task-brief \"docs/superpowers/plans/2026-06-23-superbizagent-refactoring-plan.md\" 3)",
+      "Bash(git commit -m 'feat: add DatabaseInitConfig for sample tables and seed data *)",
+      "Bash(C:/Users/Frost/.claude/plugins/cache/claude-plugins-official/superpowers/6.0.3/skills/subagent-driven-development/scripts/review-package 02583af HEAD)",
+      "Bash(C:/Users/Frost/.claude/plugins/cache/claude-plugins-official/superpowers/6.0.3/skills/subagent-driven-development/scripts/task-brief \"docs/superpowers/plans/2026-06-23-superbizagent-refactoring-plan.md\" 4)",
+      "Bash(git commit -m 'feat: add DatabaseTools @Tool for SQL query and schema introspection *)",
+      "Bash(C:/Users/Frost/.claude/plugins/cache/claude-plugins-official/superpowers/6.0.3/skills/subagent-driven-development/scripts/review-package dcdd356 *)",
+      "Bash(git commit -m 'fix: address DatabaseTools review findings - double LIMIT, error response, INTO OUTFILE guard *)",
+      "Bash(C:/Users/Frost/.claude/plugins/cache/claude-plugins-official/superpowers/6.0.3/skills/subagent-driven-development/scripts/task-brief \"docs/superpowers/plans/2026-06-23-superbizagent-refactoring-plan.md\" 5)",
+      "Bash(git commit *)",
+      "Bash(C:/Users/Frost/.claude/plugins/cache/claude-plugins-official/superpowers/6.0.3/skills/subagent-driven-development/scripts/review-package 7dd4de1 HEAD)",
+      "Bash(C:/Users/Frost/.claude/plugins/cache/claude-plugins-official/superpowers/6.0.3/skills/subagent-driven-development/scripts/task-brief \"docs/superpowers/plans/2026-06-23-superbizagent-refactoring-plan.md\" 6)",
+      "Bash(C:/Users/Frost/.claude/plugins/cache/claude-plugins-official/superpowers/6.0.3/skills/subagent-driven-development/scripts/task-brief \"docs/superpowers/plans/2026-06-23-superbizagent-refactoring-plan.md\" 7)",
+      "Bash(C:/Users/Frost/.claude/plugins/cache/claude-plugins-official/superpowers/6.0.3/skills/subagent-driven-development/scripts/review-package 7906298 HEAD)",
+      "Bash(C:/Users/Frost/.claude/plugins/cache/claude-plugins-official/superpowers/6.0.3/skills/subagent-driven-development/scripts/review-package be69d61 *)",
+      "Bash(C:/Users/Frost/.claude/plugins/cache/claude-plugins-official/superpowers/6.0.3/skills/subagent-driven-development/scripts/task-brief \"docs/superpowers/plans/2026-06-23-superbizagent-refactoring-plan.md\" 8)",
+      "Bash(mvn test *)"
+    ]
+  }
+}
