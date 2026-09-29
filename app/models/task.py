@@ -1,0 +1,90 @@
+"""AIOps 任务模型（任务注册表的状态载体）
+
+与 graph checkpoint 分工明确（见 ENGINEERING-DESIGN §4.3②）：
+- checkpoint 存"这条 thread 的图执行现场"；
+- 本模型存"任务是什么、属于谁、处于什么状态"，graph 不认识任务、也没有终态。
+
+两者靠 ``thread_id`` / ``checkpoint_ref`` 关联，恢复 = 读到 ``ejected`` → 用 thread_id 续最新 checkpoint。
+"""
+
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from enum import Enum
+from typing import Any, Dict, Optional, List
+
+from pydantic import BaseModel, Field
+
+
+class TaskStatus(str, Enum):
+    """任务状态机
+
+    queued → running ──→ done(终态)
+                     ├── cancel → cancelled(终态)
+                     ├── 进程中断 → ejected(可恢复候选，**非**终态)
+                     │     ├── resume → running → done
+                     │     ├── 用户放弃 → failed(终态)
+                     │     └── 停滞超 TTL → expired(终态)
+                     └── 失败收尾 → failed(终态)
+    """
+
+    QUEUED = "queued"
+    RUNNING = "running"
+    DONE = "done"
+    CANCELLED = "cancelled"
+    EJECTED = "ejected"
+    FAILED = "failed"
+    EXPIRED = "expired"
+
+
+#: 终态集合——落盘后不再出现在"待恢复清单"里（满足"不重复展示"）
+TERMINAL_STATUSES = frozenset({
+    TaskStatus.DONE,
+    TaskStatus.CANCELLED,
+    TaskStatus.FAILED,
+    TaskStatus.EXPIRED,
+})
+
+#: 可恢复状态——启动扫描只取这些
+RESUMABLE_STATUSES = frozenset({TaskStatus.EJECTED})
+
+
+class TaskRecord(BaseModel):
+    """一条排障任务的注册信息"""
+
+    task_id: str = Field(..., description="任务唯一 ID")
+    owner: str = Field(default="anonymous", description="任务归属（本期占位，鉴权属 P2）")
+    session_id: str = Field(..., description="归属会话")
+    parent_session: Optional[str] = Field(
+        default=None, description="完成回填目标（触发本任务的主对话会话）"
+    )
+    thread_id: str = Field(..., description="对应的 graph thread_id（恢复用）")
+    input: str = Field(..., description="任务输入（排障目标描述）")
+
+    status: TaskStatus = Field(default=TaskStatus.QUEUED)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+    checkpoint_ref: Optional[str] = Field(
+        default=None, description="checkpoint 引用（本期即 thread_id）"
+    )
+    plan_version: int = Field(default=1, description="计划版本（replan 会增加）")
+    time_anchor: Optional[datetime] = Field(
+        default=None, description="原任务时间窗；时间敏感查询恢复时沿用而非按 now"
+    )
+    result_ref: Optional[str] = Field(default=None, description="完成后的报告引用")
+
+    def touch(self) -> None:
+        """更新 updated_at。"""
+        self.updated_at = datetime.now(timezone.utc)
+
+    @property
+    def is_terminal(self) -> bool:
+        return self.status in TERMINAL_STATUSES
+
+    @property
+    def is_resumable(self) -> bool:
+        return self.status in RESUMABLE_STATUSES
+
+    def to_dict(self) -> Dict[str, Any]:
+        return self.model_dump(mode="json")

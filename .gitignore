@@ -1,63 +1,93 @@
-target/
-!.mvn/wrapper/maven-wrapper.jar
-!**/src/main/**/target/
-!**/src/test/**/target/
-
-### IntelliJ IDEA ###
-.idea/modules.xml
-.idea/jarRepositories.xml
-.idea/compiler.xml
-.idea/libraries/
-.idea/CopilotChatHistory.xml
-.idea/CopilotChatTabs.xml
-*.iws
-*.iml
-*.ipr
-.idea/*
-### Eclipse ###
-.apt_generated
-.classpath
-.factorypath
-.project
-.settings
-.springBeans
-.sts4-cache
-
-### NetBeans ###
-/nbproject/private/
-/nbbuild/
-/dist/
-/nbdist/
-/.nb-gradle/
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
 build/
-!**/src/main/**/build/
-!**/src/test/**/build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
 
-### VS Code ###
+# Virtual Environment
+venv/
+env/
+ENV/
+.venv
+
+# uv
+.uv/
+
+# Poetry (legacy)
+poetry.lock
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# CodeBuddy
+.codebuddy/
+
+# Environment（.env 含真实密钥，绝不入库；仅提交 .env.example 占位）
+.env
+.env.*
+!.env.example
+
+# Logs
+logs/
+*.log
+*.pid
+
+# Database
+*.db
+*.sqlite
+
+# Milvus
+volumes/
+
+# Uploads
+uploads/
+*.tmp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Pytest
+.pytest_cache/
+.coverage
+htmlcov/
+
+# MyPy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Ruff
+.ruff_cache/
+
+# 内部文档与工作区（不上传：设计/计划/简历/存档点/编辑器配置）
+docs/
+.claude/
+.codebuddy/
+.pytest_cache/
+htmlcov/
+.coverage
+logs/
+.idea/
 .vscode/
 
-### Mac OS ###
-.DS_Store
-
-### Application Logs ###
-*.log
-app.log
-logs/
-
-### Upload Files ###
-uploads/
-
-### Temp Scripts ###
-*.sh
-*.py
-
-### docker
-/volumes
-/server.pid
-
-### env
-src/main/resources/.env
-### 文档
-aiops-docs/
-
-docs/superpowers/specs/2026-06-23-superbizagent-refactoring-design.md
