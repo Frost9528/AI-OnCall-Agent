@@ -165,6 +165,15 @@ async def chat_stream(request: ChatRequest):
                             "data": str(chunk_data)
                         }, ensure_ascii=False)
                     }
+                elif chunk_type == "degraded":
+                    # 已推流后失败：内容可能不完整，提示用户而非重试
+                    yield {
+                        "event": "message",
+                        "data": json.dumps({
+                            "type": "degraded",
+                            "data": str(chunk_data)
+                        }, ensure_ascii=False)
+                    }
 
             logger.info(f"[会话 {request.id}] 流式对话完成")
 

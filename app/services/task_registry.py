@@ -183,6 +183,10 @@ class TaskRegistry:
     def expire_stale(self, ttl_seconds: int) -> int:
         """把停滞超过 TTL 的 ``ejected`` 收敛为 ``expired``（硬超时）。
 
+        比较用 ``updated_at <= cutoff``：任务创建与扫描之间可能只隔微秒，
+        若用严格小于，TTL=0（"立即全部过期"）会因时间戳先后而随机漏掉，
+        形成不稳定行为。
+
         Returns:
             int: 被收敛的任务数
         """
@@ -190,7 +194,7 @@ class TaskRegistry:
         with self._lock, self._connect() as conn:
             cur = conn.execute(
                 "UPDATE aiops_tasks SET status = ?, updated_at = ? "
-                "WHERE status = ? AND updated_at < ?",
+                "WHERE status = ? AND updated_at <= ?",
                 (
                     TaskStatus.EXPIRED.value,
                     datetime.now(timezone.utc).isoformat(),

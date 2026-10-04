@@ -24,6 +24,7 @@ from langchain_qwq import ChatQwen
 
 from app.config import config
 from app.tools import DEFAULT_LOCAL_AGENT_TOOLS
+from app.agent.aiops.failure import classify_failure, is_retryable
 from app.agent.mcp_client import (
     get_mcp_client_with_retry,
     load_mcp_tools_safe,
@@ -270,67 +271,99 @@ class RagAgentService:
         """
         流式处理用户问题（逐步返回答案片段）
 
+        **重试语义（P1-1）**：首 token 产出**之前**失败 → 整次重试；
+        已经开始推流后再失败 → **不重试**（否则用户会看到前后两段矛盾内容），
+        改为发出降级错误提示。
+
         Args:
             question: 用户问题
             session_id: 会话ID（作为 thread_id）
 
         Yields:
             Dict[str, Any]: 包含流式数据的字典
-                - type: "content" | "tool_call" | "complete" | "error"
+                - type: "content" | "tool_call" | "complete" | "error" | "degraded"
                 - data: 具体内容
         """
         try:
             await self._initialize_agent()
-
-            logger.info(f"[会话 {session_id}] RAG Agent 收到查询（流式）: {question}")
-
-            # 构建消息列表（系统提示 + 用户问题）
-            messages = [
-                SystemMessage(content=self.system_prompt),
-                HumanMessage(content=question)
-            ]
-
-            # 构建 Agent 输入
-            agent_input = {"messages": messages}
-
-            # 配置 thread_id（用于会话持久化）
-            config_dict = {
-                "configurable": {
-                    "thread_id": session_id
-                }
-            }
-
-            async for token, metadata in self.agent.astream(
-                input=agent_input,
-                config=config_dict,
-                stream_mode="messages",
-            ):
-                node_name = metadata.get('langgraph_node', 'unknown') if isinstance(metadata, dict) else 'unknown'
-                message_type = type(token).__name__
-
-                if message_type in ("AIMessage", "AIMessageChunk"):
-                    content_blocks = getattr(token, 'content_blocks', None)
-
-                    if content_blocks and isinstance(content_blocks, list):
-                        for block in content_blocks:
-                            if isinstance(block, dict) and block.get('type') == 'text':
-                                text_content = block.get('text', '')
-                                if text_content:
-                                    yield {
-                                        "type": "content",
-                                        "data": text_content,
-                                        "node": node_name
-                                    }
-
-            logger.info(f"[会话 {session_id}] RAG Agent 查询完成（流式）")
-            yield {"type": "complete"}
-
         except Exception as e:
             detail = format_exception_chain(e)
-            logger.error(
-                f"[会话 {session_id}] RAG Agent 查询失败（流式）: {detail}"
-            )
+            logger.error(f"[会话 {session_id}] Agent 初始化失败: {detail}")
             yield {"type": "error", "data": detail}
+            return
+
+        logger.info(f"[会话 {session_id}] RAG Agent 收到查询（流式）: {question}")
+
+        config_dict = {"configurable": {"thread_id": session_id}}
+        max_retries = max(0, config.llm_max_retries)
+        last_error = ""
+
+        # 首 token 前允许有界重试；一旦推过流就锁定，不再重试
+        for attempt in range(max_retries + 1):
+            produced_output = False
+            try:
+                messages = [
+                    SystemMessage(content=self.system_prompt),
+                    HumanMessage(content=question),
+                ]
+
+                async for token, metadata in self.agent.astream(
+                    input={"messages": messages},
+                    config=config_dict,
+                    stream_mode="messages",
+                ):
+                    node_name = metadata.get('langgraph_node', 'unknown') if isinstance(metadata, dict) else 'unknown'
+                    message_type = type(token).__name__
+
+                    if message_type in ("AIMessage", "AIMessageChunk"):
+                        content_blocks = getattr(token, 'content_blocks', None)
+
+                        if content_blocks and isinstance(content_blocks, list):
+                            for block in content_blocks:
+                                if isinstance(block, dict) and block.get('type') == 'text':
+                                    text_content = block.get('text', '')
+                                    if text_content:
+                                        produced_output = True
+                                        yield {
+                                            "type": "content",
+                                            "data": text_content,
+                                            "node": node_name
+                                        }
+
+                logger.info(f"[会话 {session_id}] RAG Agent 查询完成（流式）")
+                yield {"type": "complete"}
+                return
+
+            except Exception as e:
+                detail = format_exception_chain(e)
+                last_error = detail
+
+                if produced_output:
+                    # 已推流：重试会让用户看到重复/矛盾内容，改为降级提示
+                    logger.error(
+                        f"[会话 {session_id}] 已推流后失败，不重试，发降级提示: {detail}"
+                    )
+                    yield {
+                        "type": "degraded",
+                        "data": "回答在生成过程中中断，已输出内容可能不完整。请重试或换个问法。",
+                        "detail": detail,
+                    }
+                    return
+
+                kind = classify_failure(e)
+                if is_retryable(kind) and attempt < max_retries:
+                    logger.warning(
+                        f"[会话 {session_id}] 首 token 前失败（{kind.value}），"
+                        f"第 {attempt + 1} 次重试: {detail}"
+                    )
+                    continue
+
+                logger.error(
+                    f"[会话 {session_id}] 流式查询失败（{kind.value}，不可重试或已达上限）: {detail}"
+                )
+                break
+
+        yield {"type": "error", "data": last_error}
 
     def get_session_history(self, session_id: str) -> list:
         """

@@ -53,6 +53,14 @@ class Settings(BaseSettings):
     checkpoint_enabled: bool = True   # 显式关闭则退回内存态（进程内）
     task_ttl_seconds: int = 3600      # ejected 停滞超过此时长收敛为 expired
 
+    # 多模态版面解析（P1-4）：云端飞桨 OCR，开关式接入
+    # 未配置 key / 关闭开关时，/upload 退回纯文本链路，不影响启动与既有功能。
+    ocr_enabled: bool = False
+    ocr_api_url: str = ""             # 云端版面解析端点
+    ocr_api_key: str = ""
+    ocr_request_timeout: float = 30.0
+    ocr_max_retries: int = 2          # 云端解析的瞬时失败重试次数
+
     # 文档分块配置
     chunk_max_size: int = 800
     chunk_overlap: int = 100
