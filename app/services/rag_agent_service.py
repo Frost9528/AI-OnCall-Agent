@@ -4,6 +4,7 @@
 支持真正的流式输出。
 """
 
+from datetime import datetime
 from typing import Annotated, Any, AsyncGenerator, Dict, Sequence
 
 from langchain.agents import create_agent
@@ -120,7 +121,7 @@ class RagAgentService:
         self.mcp_tools: list = []
 
         # 创建内存检查点（用于会话管理）
-        self.checkpointer = MemorySaver()
+        self.checkpointer = MemorySaver()   # 默认内存态；lifespan 中由 attach_checkpointer 替换
 
         # Agent 初始化（会在异步方法中完成）
         self.agent = None
@@ -167,6 +168,24 @@ class RagAgentService:
         if all_tools:
             tool_names = [tool.name if hasattr(tool, "name") else str(tool) for tool in all_tools]
             logger.info(f"可用工具列表: {', '.join(tool_names)}")
+
+    def attach_checkpointer(self, checkpointer) -> None:
+        """挂载持久化 checkpointer 并重建 agent。
+
+        与 aiops_service.attach_checkpointer 同模式：图在编译时绑定 checkpointer，
+        无法替换实例，故重建。
+        """
+        self.checkpointer = checkpointer
+        self._agent_initialized = False          # 强制重建 agent
+        self.agent = create_agent(
+            self.model,
+            tools=self.tools + self.mcp_tools,
+            checkpointer=self.checkpointer,
+            middleware=[trim_messages_middleware],
+        )
+        self._agent_initialized = True
+        self._persistent = not isinstance(checkpointer, MemorySaver)
+        logger.info(f"对话 Agent 已挂载 checkpointer: {type(checkpointer).__name__}")
 
     def _build_system_prompt(self) -> str:
         """
@@ -365,88 +384,36 @@ class RagAgentService:
 
         yield {"type": "error", "data": last_error}
 
-    def get_session_history(self, session_id: str) -> list:
-        """
-        获取会话历史（从 MemorySaver checkpointer 中读取）
-
-        Args:
-            session_id: 会话ID（即 thread_id）
-
-        Returns:
-            list: 消息历史列表 [{"role": "user|assistant", "content": "...", "timestamp": "..."}]
-        """
+    async def get_session_history(self, session_id: str) -> list:
+        """获取会话历史（从 checkpointer 读取；持久化后可跨重启）。"""
         try:
-            # 使用 checkpointer 的 get 方法获取最新的检查点
-            config = {"configurable": {"thread_id": session_id}}
-            
-            # 获取该 thread 的最新检查点
-            checkpoint_tuple = self.checkpointer.get(config)
-            
-            if not checkpoint_tuple:
-                logger.info(f"获取会话历史: {session_id}, 消息数量: 0")
+            cfg = {"configurable": {"thread_id": session_id}}
+            tup = await self.checkpointer.aget_tuple(cfg)
+            if not tup:
                 return []
-            
-            # checkpoint_tuple 可能是命名元组或普通元组，安全地提取 checkpoint
-            # 通常第一个元素是 checkpoint 数据
-            if hasattr(checkpoint_tuple, 'checkpoint'):
-                checkpoint_data = checkpoint_tuple.checkpoint  # type: ignore
-            else:
-                # 如果是普通元组，第一个元素是 checkpoint
-                checkpoint_data = checkpoint_tuple[0] if checkpoint_tuple else {}
-            
-            # 从检查点中提取消息
-            messages = checkpoint_data.get("channel_values", {}).get("messages", [])
-            
-            # 转换为前端需要的格式
+            messages = (tup.checkpoint or {}).get("channel_values", {}).get("messages", [])
             history = []
             for msg in messages:
-                # 跳过系统消息
                 if isinstance(msg, SystemMessage):
                     continue
-                    
                 role = "user" if isinstance(msg, HumanMessage) else "assistant"
-                content = msg.content if hasattr(msg, 'content') else str(msg)
-                
-                # 提取时间戳（如果有的话）
-                timestamp = getattr(msg, 'timestamp', None)
-                if timestamp:
-                    history.append({
-                        "role": role,
-                        "content": content,
-                        "timestamp": timestamp
-                    })
-                else:
-                    from datetime import datetime
-                    history.append({
-                        "role": role,
-                        "content": content,
-                        "timestamp": datetime.now().isoformat()
-                    })
-            
+                history.append({
+                    "role": role,
+                    "content": msg.content if hasattr(msg, "content") else str(msg),
+                    "timestamp": getattr(msg, "timestamp", None) or datetime.now().isoformat(),
+                })
             logger.info(f"获取会话历史: {session_id}, 消息数量: {len(history)}")
             return history
-            
         except Exception as e:
             logger.error(f"获取会话历史失败: {session_id}, 错误: {e}")
             return []
 
-    def clear_session(self, session_id: str) -> bool:
-        """
-        清空会话历史（从 MemorySaver checkpointer 中删除）
-
-        Args:
-            session_id: 会话ID（即 thread_id）
-
-        Returns:
-            bool: 是否成功
-        """
+    async def clear_session(self, session_id: str) -> bool:
+        """清空会话历史。"""
         try:
-            # 使用 checkpointer 的 delete_thread 方法删除该 thread 的所有检查点
-            self.checkpointer.delete_thread(session_id)
-            
+            await self.checkpointer.adelete_thread(session_id)
             logger.info(f"已清除会话历史: {session_id}")
             return True
-            
         except Exception as e:
             logger.error(f"清空会话历史失败: {session_id}, 错误: {e}")
             return False

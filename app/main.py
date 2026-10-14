@@ -16,6 +16,7 @@ from app.api import chat, health, file, aiops
 from app.core.milvus_client import milvus_manager
 from app.core.checkpointer import create_async_checkpointer
 from app.services.aiops_service import aiops_service
+from app.services.rag_agent_service import rag_agent_service
 
 
 @asynccontextmanager
@@ -36,6 +37,7 @@ async def lifespan(app: FastAPI):
     # 挂载持久化 checkpointer，并重建图；不可用时自动降级内存态
     async with create_async_checkpointer() as checkpointer:
         aiops_service.attach_checkpointer(checkpointer)
+        rag_agent_service.attach_checkpointer(checkpointer)
 
         # 启动扫描：遗留 running 标为 ejected，列待恢复清单（只含 ejected）
         resumable = aiops_service.startup_scan()
