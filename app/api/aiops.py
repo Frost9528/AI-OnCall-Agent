@@ -270,13 +270,19 @@ async def resume_task(request: TaskResumeRequest):
 
 @router.get("/aiops/tasks/resumable")
 async def list_resumable_tasks():
-    """待恢复任务清单（只含 ejected；终态不重复出现）。"""
+    """待恢复任务清单（只含 ejected；终态不重复出现）。
+
+    每条含 ``interrupt`` 字段：``auto`` 表示现场无副作用、可直接续跑；
+    ``manual`` 表示含需人工决策的收尾/换路（或未来写侧工具的幂等风险），
+    建议由工作台确认后再续。
+    """
     tasks = aiops_service.list_resumable_tasks()
     return {
         "code": 200,
         "message": "success",
         "data": {
             "total": len(tasks),
+            "auto_resumable": sum(1 for t in tasks if t.interrupt.value == "auto"),
             "tasks": [t.to_dict() for t in tasks],
         },
     }
@@ -284,8 +290,15 @@ async def list_resumable_tasks():
 
 @router.get("/aiops/tasks/{task_id}")
 async def get_task(task_id: str):
-    """查询单个任务状态。"""
+    """查询单个任务的状态与结果。
+
+    这是"任务跑完后结果去哪了"的答案：终态任务的 ``report`` 字段带最终报告正文。
+    提交任务若走同步 SSE（``/aiops/tasks``），客户端断连后仍可凭 task_id 回到这里取报告。
+    """
     task = aiops_service.get_task(task_id)
     if task is None:
         raise HTTPException(status_code=404, detail=f"任务不存在: {task_id}")
-    return {"code": 200, "message": "success", "data": task.to_dict()}
+
+    data = task.to_dict()
+    data["has_report"] = bool(task.report)
+    return {"code": 200, "message": "success", "data": data}

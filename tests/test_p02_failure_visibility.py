@@ -21,6 +21,10 @@ from app.agent.aiops.failure import FailureKind  # noqa: E402
 planner_mod = importlib.import_module("app.agent.aiops.planner")
 replanner_mod = importlib.import_module("app.agent.aiops.replanner")
 
+# 结构化输出现统一经 llm_factory.create_structured_model 构造
+# （原先各节点直接 ChatQwen(...).with_structured_output(...)），故 patch 目标为工厂方法。
+llm_factory_mod = importlib.import_module("app.core.llm_factory")
+
 
 class SchemaError(Exception):
     def __init__(self):
@@ -65,7 +69,7 @@ def _base_state(**over):
 def test_planner_failure_degrades_but_records_reason():
     with patch.object(planner_mod, "retrieve_knowledge") as rk, \
          _patch_mcp_empty(planner_mod), \
-         patch.object(planner_mod.ChatQwen, "with_structured_output", return_value=BOOM):
+         patch.object(llm_factory_mod.LLMFactory, "create_structured_model", return_value=BOOM):
 
         async def empty_retrieve(*_a, **_k):
             return ""
@@ -85,7 +89,7 @@ def test_planner_failure_degrades_but_records_reason():
 
 def test_replanner_decision_failure_produces_explicit_failure_report():
     with _patch_mcp_empty(replanner_mod), \
-         patch.object(replanner_mod.ChatQwen, "with_structured_output", return_value=BOOM):
+         patch.object(llm_factory_mod.LLMFactory, "create_structured_model", return_value=BOOM):
 
         out = asyncio.run(replanner_mod.replanner(
             _base_state(
@@ -106,7 +110,7 @@ def test_replanner_decision_failure_produces_explicit_failure_report():
 def test_replanner_decision_failure_report_is_not_empty_dict():
     """回归：旧实现失败时 return {}，会被上层视同 continue 而无限继续。"""
     with _patch_mcp_empty(replanner_mod), \
-         patch.object(replanner_mod.ChatQwen, "with_structured_output", return_value=BOOM):
+         patch.object(llm_factory_mod.LLMFactory, "create_structured_model", return_value=BOOM):
 
         out = asyncio.run(replanner_mod.replanner(
             _base_state(plan=["步骤1"], past_steps=[("步骤A", "结果A")])

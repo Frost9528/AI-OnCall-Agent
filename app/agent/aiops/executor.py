@@ -58,6 +58,21 @@ def _looks_empty(result: str) -> bool:
     return any(h.lower() in lowered for h in _EMPTY_DATA_HINTS)
 
 
+def _time_window_hint(time_anchor: str) -> str:
+    """把原任务时间窗转成给 LLM 的查询约束（E5）。
+
+    恢复任务时若查询语义绑时间窗，应沿用原窗口而非按"现在"重查，
+    否则"查昨天 14:00 的告警"会变成"查当前现状"，答非所问。
+    """
+    if not time_anchor:
+        return ""
+    return (
+        f"\n\n【时间窗约束】本次任务锚定在 {time_anchor}（原任务时间）。"
+        f"涉及时间范围的查询（如指标区间、告警活跃窗口）请以该时刻为准，"
+        f"不要按「当前时间」重新查询。若某查询确需当前状态，请明确说明。"
+    )
+
+
 async def executor(state: PlanExecuteState) -> Dict[str, Any]:
     """
     执行节点：执行计划中的下一个步骤
@@ -97,7 +112,9 @@ async def executor(state: PlanExecuteState) -> Dict[str, Any]:
 
         messages = [
             SystemMessage(content=_EXECUTOR_SYSTEM_PROMPT),
-            HumanMessage(content=f"请执行以下任务: {task}"),
+            HumanMessage(
+                content=f"请执行以下任务: {task}{_time_window_hint(state.get('time_anchor', ''))}"
+            ),
         ]
 
         # 第一步：LLM 决定是否调用工具（带超时 + 有界重试）

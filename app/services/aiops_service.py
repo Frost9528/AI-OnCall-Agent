@@ -8,6 +8,7 @@
 """
 
 import uuid
+from datetime import datetime, timezone
 from typing import AsyncGenerator, Dict, Any, Optional
 
 from langgraph.graph import StateGraph, END
@@ -15,7 +16,8 @@ from langgraph.checkpoint.memory import MemorySaver
 from loguru import logger
 
 from app.agent.aiops import PlanExecuteState, planner, executor, replanner
-from app.models.task import TaskRecord, TaskStatus
+from app.agent.aiops.failure import FailureKind
+from app.models.task import InterruptMode, TaskRecord, TaskStatus
 from app.services.task_registry import task_registry
 
 
@@ -201,11 +203,15 @@ class AIOpsService:
         session_id: str = "default",
         owner: str = "anonymous",
         parent_session: Optional[str] = None,
+        time_anchor: Optional[datetime] = None,
     ) -> TaskRecord:
         """登记一个新排障任务。
 
         thread_id 用 task_id（不再是 session_id）——同一会话可先后有多个任务，
         各自独立的图现场，避免互相覆盖 checkpoint。
+
+        time_anchor 记录"任务被创建的那一刻"：时间敏感查询（查某告警当时活跃窗口）
+        恢复时应沿用它而非按 now 重查，避免答非所问（E5）。
         """
         task_id = new_task_id()
         task = TaskRecord(
@@ -217,6 +223,7 @@ class AIOpsService:
             input=user_input,
             status=TaskStatus.RUNNING,
             checkpoint_ref=task_id,
+            time_anchor=time_anchor or datetime.now(timezone.utc),
         )
         return task_registry.create(task)
 
@@ -241,6 +248,38 @@ class AIOpsService:
         if resumable:
             logger.warning(f"启动扫描：发现 {len(resumable)} 个待恢复任务（ejected）")
         return resumable
+
+    async def classify_interrupt_modes(self, tasks: list[TaskRecord]) -> None:
+        """为待恢复任务判定 auto/manual（E5）。
+
+        判定依据是**失败留痕**而非猜测：权限/配置、schema 类失败意味着
+        "继续走也不会好转，需要人看一眼"，故为 manual；纯瞬时类（超时/5xx）
+        在只读工具集下可直接续，为 auto。无失败记录 → auto。
+        """
+        manual_kinds = {FailureKind.PERMISSION, FailureKind.SCHEMA}
+
+        for task in tasks:
+            mode = InterruptMode.AUTO
+            try:
+                state = await self.graph.aget_state(
+                    {"configurable": {"thread_id": task.thread_id}}
+                )
+                failures = (state.values or {}).get("failures", []) if state else []
+                for raw in failures:
+                    kind = raw.get("kind") if isinstance(raw, dict) else getattr(raw, "kind", None)
+                    if kind is None:
+                        continue
+                    # checkpoint 往返后 kind 可能是字符串
+                    value = kind.value if isinstance(kind, FailureKind) else str(kind)
+                    if value in {k.value for k in manual_kinds}:
+                        mode = InterruptMode.MANUAL
+                        break
+            except Exception as e:
+                # 判不出来就保守当作需要人工决策，不擅自自动续跑
+                logger.warning(f"任务 {task.task_id} 恢复模式判定失败，保守标 manual: {e}")
+                mode = InterruptMode.MANUAL
+
+            task_registry.set_interrupt_mode(task.task_id, mode)
 
     # ---------- 执行 ----------
 
@@ -288,6 +327,7 @@ class AIOpsService:
                 "past_steps": [],
                 "response": "",
                 "failures": [],
+                "time_anchor": task.time_anchor.isoformat() if task.time_anchor else "",
             }
 
         try:
@@ -313,7 +353,10 @@ class AIOpsService:
                 final_response = final_state.values.get("response", "")
 
             task_registry.update_status(
-                task.task_id, TaskStatus.DONE, result_ref=task.task_id
+                task.task_id,
+                TaskStatus.DONE,
+                result_ref=f"aiops_tasks/{task.task_id}#report",
+                report=final_response or None,
             )
 
             yield {
