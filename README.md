@@ -17,111 +17,112 @@
 ## 🛠️ 技术栈
 
 - **框架**: FastAPI + LangChain + LangGraph
-- **LLM**: 阿里云 DashScope (通义千问)
+- **LLM**: DeepSeek（对话/推理）/ 阿里云 DashScope（嵌入），均走 OpenAI 兼容端点，可由 `LLM_PROVIDER` 切换
 - **向量库**: Milvus
 - **工具协议**: MCP (Model Context Protocol)
 
 ## 🚀 快速开始
 
 ### 环境要求
-- Python 3.10+
-- 阿里云 DashScope API Key ([获取地址](https://dashscope.aliyun.com/))
+- Python 3.11+
+- Docker Desktop（运行 Milvus 向量库）
+- conda 环境 `langchain`，或等价的虚拟环境
+- LLM API Key：DeepSeek 或 阿里云 DashScope（见 `.env` 说明）
 
 ### 安装和启动
 
-#### Linux/macOS 环境
+> **想最快跑起来？** 用「方式一」一键脚本。其余方式是等价的手动步骤与历史遗留脚本，见文末对照。
+
+#### 方式一：一键启动脚本（推荐）
 
 ```bash
-# 1. 克隆项目
-git clone <repository_url>
-cd super_biz_agent_py
+# 完整启动（Milvus + 服务 + MCP + Prometheus）
+./start-all.sh
 
-# 2. 安装依赖（推荐使用 uv）
-# 方式 1: 使用 uv（推荐，更快）
-pip install uv
-uv venv
-source .venv/bin/activate
-uv pip install -e .
+# 只启动必需层（Milvus + 服务）
+./start-all.sh --minimal
 
-# 方式 2: 使用 pip
-pip install -e .
-
-# 3. 编辑配置文件
-# 首次使用需要编辑 .env 文件，填入你的 DASHSCOPE_API_KEY
-vim .env  # 或使用其他编辑器
-
-# 4. 一键初始化（启动 Docker + 服务 + 上传文档）
-make init
-
-# 5. 一键启动
-make start
+# 停止全部
+./start-all.sh --stop
 ```
 
-#### Windows 环境（PowerShell/CMD）
-
-如果Windows 不支持 `make` 命令，可以手动执行以下步骤以启动服务：
+Windows 下双击 `start-all.bat`，参数相同：
 
 ```powershell
-# 1. 克隆项目
-git clone <repository_url>
-cd super_biz_agent_py
+.\start-all.bat
+.\start-all.bat --minimal
+.\start-all.bat --stop
+```
 
-# 2. 创建虚拟环境并安装依赖
-# 方式 1: 使用 uv（推荐，更快）
-pip install uv
-# 创建虚拟环境
-uv venv
-# 激活虚拟环境
-.venv\Scripts\activate
-# 安装所有依赖
-uv pip install -e .
+脚本按依赖顺序拉起各层，并做**健康检查与就绪等待**（真正等到 Milvus healthy、等到 `/health` 通过才返回）：
 
-# 方式 2: 使用 pip
-python -m venv .venv
-.venv\Scripts\activate
-pip install -e .
+| 层 | 端口 | 必需 | 说明 |
+|---|---|---|---|
+| Milvus（etcd + minio + standalone + attu） | 19530 / 8000 | ✅ | 向量库，RAG 检索依赖 |
+| SuperBizAgent 服务 | 9900 | ✅ | FastAPI 主服务 |
+| MCP（cls / monitor） | 8003 / 8004 | 可选 | 日志与监控查询；缺失时 AIOps 会如实报告"无数据"而非编造 |
+| Prometheus | 9090 | 可选 | 告警与指标查询 |
 
-# 3. 编辑配置文件
-# 使用记事本或其他编辑器打开 .env 文件，填入你的 DASHSCOPE_API_KEY
-notepad .env
+完成后访问 **http://127.0.0.1:9900/docs**（API 文档）、**http://127.0.0.1:9900/**（前端）。
 
-# 4. 启动 Docker Desktop
-# 确保 Docker Desktop 已安装并正在运行
+#### 方式二：手动启动
 
-# 5. 启动 Milvus 向量数据库（Docker Compose）
+```bash
+# 1. 启动 Milvus
 docker compose -f vector-database.yml up -d
 
-# 6. 等待 Milvus 启动完成（约 5-10 秒）
-timeout /t 10
-
-# 7. 启动 MCP 服务
-# 启动 CLS 日志查询服务（新开一个 PowerShell 窗口）
-python mcp_servers/cls_server.py
-
-# 启动 Monitor 监控服务（新开一个 PowerShell 窗口）
-python mcp_servers/monitor_server.py
-
-# 8. 启动 FastAPI 主服务（新开一个 PowerShell 窗口）
-# 注意：日志会自动输出到 logs\app_YYYY-MM-DD.log
+# 2. 启动主服务（另开终端）
+conda activate langchain
 python -m uvicorn app.main:app --host 0.0.0.0 --port 9900
 
-# 9. 上传文档到向量库（新开一个 PowerShell 窗口）
-# 等待服务启动完成后执行
-timeout /t 5
-python -c "import requests, os, time; [requests.post('http://localhost:9900/api/upload', files={'file': open(f'aiops-docs/{f}', 'rb')}) or time.sleep(1) for f in os.listdir('aiops-docs') if f.endswith('.md')]"
+# 3.（可选）MCP 服务，各开一个终端
+python mcp_servers/cls_server.py
+python mcp_servers/monitor_server.py
 ```
 
-**Windows 一键启动脚本**（推荐）
+#### 配置文件 `.env`
 
-使用启动脚本：
+首次使用复制模板并填入 Key：
 
-```powershell
-# 启动所有服务
-.\start-windows.bat
-
-# 停止所有服务
-.\stop-windows.bat
+```bash
+cp .env.example .env
 ```
+
+关键项：
+
+```ini
+LLM_PROVIDER=deepseek            # 模型提供方：dashscope | deepseek
+DEEPSEEK_API_KEY=sk-...          # 对话/推理模型
+DEEPSEEK_MODEL=deepseek-flash
+DASHSCOPE_API_KEY=sk-...         # 嵌入模型（检索用）
+DASHSCOPE_EMBEDDING_MODEL=text-embedding-v4
+```
+
+> ⚠️ **两个易踩的坑**
+> 1. `.env` 注释只能用 `#`，**不能用 `;`** —— 否则 Docker Compose 会拒绝启动。
+> 2. 改完 `.env` 必须**重启服务**才生效。
+
+#### 上传知识库文档
+
+服务起来后，把 `aiops-docs/` 下的故障手册灌入向量库：
+
+```bash
+# Linux/macOS
+for f in aiops-docs/*.md; do curl -s -X POST http://localhost:9900/api/upload -F "file=@$f"; echo; done
+
+# Windows PowerShell
+Get-ChildItem aiops-docs\*.md | ForEach-Object { curl.exe -s -X POST http://localhost:9900/api/upload -F "file=@$($_.FullName)"; echo }
+```
+
+#### 启动方式对照
+
+| 方式 | 适用 | 与 `start-all` 的区别 |
+|---|---|---|
+| **`start-all.sh` / `.bat`** | 任意（推荐） | 按依赖顺序 + 就绪等待；`--minimal` / `--stop` 双向可控；额外管理 Prometheus；bash 与 CMD 双版本 |
+| `make init` / `make start` | Linux/macOS | 依赖 GNU make；串起 docker + 服务，但**不管 Prometheus**，无就绪等待 |
+| `start-windows.bat` | Windows | 侧重**环境准备**（装 uv、建 venv、装依赖）；服务编排较简，不管 Prometheus |
+| 手动分步 | 任意 | 最透明，适合排查问题 |
+
 
 ### 访问服务
 - **Web 界面**: http://localhost:9900
