@@ -55,6 +55,8 @@ logs/
 # Database
 *.db
 *.sqlite
+# SQLite 运行时目录（checkpointer 与任务注册表），含真实会话数据，不入库
+data/
 
 # Milvus
 volumes/

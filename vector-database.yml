@@ -23,8 +23,10 @@ services:
       MINIO_ACCESS_KEY: minioadmin
       MINIO_SECRET_KEY: minioadmin
     ports:
-      - "9001:9001"
-      - "9000:9000"
+      # 宿主端口用 9010/9011：9000/9001 已被另一项目的 minio 占用。
+      # Milvus 内部走容器网络（minio:9000），与宿主端口无关，故改这里不影响 Milvus。
+      - "9011:9001"
+      - "9010:9000"
     volumes:
       - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/minio:/minio_data
     command: minio server /minio_data --console-address ":9001"

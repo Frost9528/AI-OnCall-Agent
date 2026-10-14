@@ -29,6 +29,16 @@ class Settings(BaseSettings):
     dashscope_model: str = "qwen-max"
     dashscope_embedding_model: str = "text-embedding-v4"  # v4 支持多种维度（默认 1024）
 
+    # 对话/推理模型的提供方：dashscope | deepseek
+    # 两者都是 OpenAI 兼容端点，切换只需改这里 + 对应 base_url/api_key/model。
+    # 实测结论：DashScope 的 qwen 系列在免费额度耗尽后不可用；
+    # DeepSeek 官方 API 的模型默认开启 thinking 模式，会拒绝强制 tool_choice，
+    # 必须关掉（见 llm_factory 的 extra_body）。
+    llm_provider: str = "dashscope"
+    deepseek_api_key: str = ""
+    deepseek_api_base: str = "https://api.deepseek.com/v1"
+    deepseek_model: str = "deepseek-flash"
+
     # Milvus 配置
     milvus_host: str = "localhost"
     milvus_port: int = 19530

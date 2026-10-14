@@ -1,0 +1,19 @@
+# 告警规则示例（SuperBizAgent）
+#
+# 默认**不启用任何告警**（文件只有注释），这样 Prometheus 起着是干净的。
+# 想让 AIOps 演示出真实告警时，把下面的规则取消注释即可；
+# 但注意：规则引用的指标必须真的被采集到（见 prometheus.yml 的 scrape_configs），
+# 否则规则虽在、却永远不触发。
+
+groups: []
+# groups:
+#   - name: example-alerts
+#     rules:
+#       - alert: HighCPUUsage
+#         expr: avg by (instance) (rate(node_cpu_seconds_total{mode!="idle"}[5m])) > 0.9
+#         for: 5m
+#         labels:
+#           severity: critical
+#         annotations:
+#           summary: "实例 {{ $labels.instance }} CPU 使用率过高"
+#           description: "CPU 使用率持续 5 分钟超过 90%（当前 {{ $value | humanizePercentage }}）"

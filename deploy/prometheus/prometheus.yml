@@ -1,0 +1,31 @@
+# Prometheus 基础配置（SuperBizAgent）
+#
+# 说明：Prometheus 本身是完整的服务端（时序库 + 抓取器 + 规则引擎），
+# 容器起着就能用。但"查不到数据"通常不是因为服务端缺失，而是缺下面两样：
+#   ① scrape_configs 里的「抓取目标」—— 要有真实暴露 /metrics 的端点
+#   ② rules/ 里的「告警规则」—— 定义什么条件算告警
+#
+# 本文件的 scrape_configs 只抓 Prometheus 自己（self-scrape），
+# 保证服务活着且 /api/v1/query 有基础指标可查；
+# 你自己的服务接进来就能看到真实数据。
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+# 告警规则：目录为空时 Prometheus 正常运行，只是没有告警产生。
+rule_files:
+  - /etc/prometheus/rules/*.yml
+
+scrape_configs:
+  # 抓 Prometheus 自身，验证链路通、有指标可查
+  - job_name: prometheus
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # ---- 接入你自己的服务（示例，按需打开）----
+  # - job_name: myapp
+  #   metrics_path: /metrics
+  #   static_configs:
+  #     - targets: ['host.docker.internal:8080']
+  #       labels:
+  #         service: myapp

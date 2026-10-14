@@ -6,11 +6,11 @@ Planner 节点：制定执行计划
 from textwrap import dedent
 from typing import Dict, Any, List
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_qwq import ChatQwen
 from pydantic import BaseModel, Field
 from loguru import logger
 
 from app.config import config
+from app.core.llm_factory import llm_factory
 from app.tools import DEFAULT_LOCAL_AGENT_TOOLS, retrieve_knowledge
 from app.agent.mcp_client import get_mcp_client_with_retry
 from .state import PlanExecuteState
@@ -135,7 +135,8 @@ async def planner(state: PlanExecuteState) -> Dict[str, Any]:
         # 步骤4: 创建 LLM 并生成计划
         llm = build_llm()
 
-        planner_chain = planner_prompt | llm.with_structured_output(Plan)
+        # 结构化输出统一走工厂（method=function_calling，见 core/llm_factory.py）
+        planner_chain = planner_prompt | llm_factory.create_structured_model(Plan)
 
         # 调用 LLM 生成计划（带分类 + 有界重试；失败会带出可见原因）
         attempt = await call_with_retry(

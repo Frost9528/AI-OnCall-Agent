@@ -223,15 +223,12 @@ class FailureSummary:
 def build_llm(temperature: float = 0.0):
     """构建 P-E-R 各节点用的 LLM。
 
-    所有节点统一从这里取模型，便于将来集中调整（如切 provider、加超时参数）。
+    所有节点统一从这里取模型，便于集中调整（切模型/提供方/超时参数）。
+    不传 model，交给 `llm_factory` 按 config.llm_provider 决定用哪个模型。
     """
-    from langchain_qwq import ChatQwen
+    from app.core.llm_factory import llm_factory
 
-    return ChatQwen(
-        model=config.rag_model,
-        api_key=config.dashscope_api_key,
-        temperature=temperature,
-    )
+    return llm_factory.create_chat_model(temperature=temperature)
 
 
 async def call_llm_chain(

@@ -6,11 +6,11 @@ Replanner 节点：重新规划或生成最终响应
 from textwrap import dedent
 from typing import Dict, Any, List
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_qwq import ChatQwen
 from pydantic import BaseModel, Field
 from loguru import logger
 
 from app.config import config
+from app.core.llm_factory import llm_factory
 from app.tools import DEFAULT_LOCAL_AGENT_TOOLS
 from app.agent.mcp_client import get_mcp_client_with_retry
 from .state import PlanExecuteState
@@ -166,7 +166,8 @@ async def replanner(state: PlanExecuteState) -> Dict[str, Any]:
     if plan:
         logger.info("还有剩余计划，评估下一步行动")
 
-        replanner_chain = replanner_prompt | llm.with_structured_output(Act)
+        # 结构化输出统一走工厂（method=function_calling）
+        replanner_chain = replanner_prompt | llm_factory.create_structured_model(Act)
 
         messages = [
             ("user", f"原始任务: {input_text}"),
@@ -241,7 +242,7 @@ async def replanner(state: PlanExecuteState) -> Dict[str, Any]:
 
 async def _generate_response(
     state: PlanExecuteState,
-    llm: ChatQwen,
+    llm: Any,
     failures_given: FailureSummary | None = None,
 ) -> Dict[str, Any]:
     """生成最终响应；若存在失败留痕，则产出显式的失败收尾报告。
@@ -268,7 +269,7 @@ async def _generate_response(
         for step, result in past_steps
     ])
 
-    response_gen = response_prompt | llm.with_structured_output(Response)
+    response_gen = response_prompt | llm_factory.create_structured_model(Response)
 
     messages = [
         ("user", f"原始任务: {input_text}"),
