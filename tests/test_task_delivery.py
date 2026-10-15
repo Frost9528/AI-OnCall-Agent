@@ -78,3 +78,17 @@ def test_deliver_pending_bounded_retries(tmp_path, monkeypatch):
     asyncio.run(d.deliver_pending())
     assert reg.get("z").delivery_status is DeliveryStatus.FAILED, "超限应标 failed"
     assert reg.get("z").delivery_attempts == 2
+
+
+def test_deliver_pending_does_not_grow_attempts_while_waiting(tmp_path):
+    """等待消费（有父会话）不算投递尝试：多次扫描不递增 attempts。"""
+    reg = TaskRegistry(str(tmp_path / "t.sqlite"))
+    d = TaskDelivery(registry=reg)
+    _mk(reg, "w", status=TaskStatus.DONE, trigger=TriggerSource.CHAT, parent_session="s1")
+    asyncio.run(d.mark_pending("w"))
+
+    for _ in range(3):
+        asyncio.run(d.deliver_pending())
+    t = reg.get("w")
+    assert t.delivery_status is DeliveryStatus.PENDING
+    assert t.delivery_attempts == 0, "等待消费不应递增投递尝试次数"

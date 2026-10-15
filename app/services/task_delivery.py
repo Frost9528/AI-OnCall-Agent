@@ -57,7 +57,12 @@ class TaskDelivery:
         return pending
 
     async def deliver_pending(self, limit: int = 20) -> int:
-        """扫描 pending 并重试；超限标 failed。返回处理条数。"""
+        """扫描 pending 并重试；超限标 failed。返回处理条数。
+
+        注意：等待消费（有父会话、待 middleware 取走）**不算**一次投递尝试，
+        故该分支不递增 attempts —— 否则 attempts 会无界增长，且 cap 失去意义。
+        attempts 只在真实投递尝试（失败/重试分支）递增。
+        """
         rows = self.registry.list_pending_deliveries(limit)
         handled = 0
         for t in rows:
@@ -73,8 +78,9 @@ class TaskDelivery:
                         t.task_id, DeliveryStatus.PENDING, attempts=attempts
                     )
             else:
-                # 有父会话：交由 middleware 在下一次对话时消费（通道2）
-                self.registry.set_delivery(t.task_id, DeliveryStatus.PENDING, attempts=attempts)
+                # 有父会话：待 middleware 在下一次对话时消费（通道2）。
+                # 这是"等待消费"而非"投递尝试"，故不递增 attempts。
+                logger.debug(f"[任务 {t.task_id}] 待对话侧消费，保持 pending")
             handled += 1
         return handled
 
