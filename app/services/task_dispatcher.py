@@ -100,8 +100,14 @@ class TaskDispatcher:
 
         与 dispatch 的区别：不新建任务、不重置 thread，按原 task_id 的 checkpoint
         续跑，故不会重放已完成步骤（design §4.3②）。
+
+        续跑即重新进入 running：否则任务在运行期间仍标 ejected，
+        会被 find_running_by_session 漏掉（单飞行失效），且下次扫描会重复续跑。
         """
         from app.services.aiops_service import aiops_service
+        from app.models.task import TaskStatus
+
+        self.registry.update_status(task.task_id, TaskStatus.RUNNING)
 
         async def runner(t: TaskRecord) -> None:
             async for _ in aiops_service.run_task(t, resume=True):

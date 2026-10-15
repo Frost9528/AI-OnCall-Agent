@@ -114,8 +114,37 @@ def test_background_false_runs_inline(tmp_path):
     assert rec.task_id in done
 
 
+def test_resume_marks_ejected_task_running(tmp_path, monkeypatch):
+    """续跑前先进入 running，避免单飞行与下次启动扫描失效。"""
+    registry = TaskRegistry(str(tmp_path / "t.sqlite"))
+    task = TaskRecord(
+        task_id="resume-1",
+        session_id="resume-session",
+        thread_id="resume-1",
+        input="诊断",
+        status=TaskStatus.EJECTED,
+    )
+    registry.create(task)
+    d = TaskDispatcher(registry=registry)
+
+    async def stub_run_task(resumed_task, resume=False):
+        assert resumed_task.task_id == task.task_id
+        assert resume is True
+        if False:
+            yield {}
+
+    from app.services.aiops_service import aiops_service
+    monkeypatch.setattr(aiops_service, "run_task", stub_run_task)
+
+    asyncio.run(d.resume(task, background=False))
+
+    stored = registry.get(task.task_id)
+    assert stored.status is TaskStatus.RUNNING
+    assert registry.find_running_by_session(task.session_id).task_id == task.task_id
+
+
 def test_cancelled_task_marked_ejected_not_failed(tmp_path):
-    """服务关闭导致的取消应标 ejected（可恢复），而非 failed（终态）。"""
+    """服务关闭导致的取消应标 ejected，而非 failed。"""
     gate = asyncio.Event()
 
     async def runner(task):
