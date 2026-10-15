@@ -24,6 +24,7 @@ from typing_extensions import TypedDict
 
 from app.config import config
 from app.core.llm_factory import llm_factory
+from app.services.task_delivery import task_delivery
 from app.tools import DEFAULT_LOCAL_AGENT_TOOLS
 from app.agent.aiops.failure import classify_failure, is_retryable
 from app.agent.mcp_client import (
@@ -93,6 +94,35 @@ def trim_messages_middleware(
     }
 
 
+@before_model
+async def inject_task_delivery_middleware(state, runtime):
+    """通道2：把"已完成任务的轻量通知"注入本会话（spec §3.4）。
+
+    只在**对话图自己的执行流内**注入，因此与用户消息写入顺序发生，
+    不存在跨进程并发写 checkpoint 的竞态。
+
+    默认关闭（config.context_inject_enabled=False）：实时性由通道1/3
+    （任务表 + 前端查询）负责，本通道只解决"模型下次记得"。
+    """
+    if not config.context_inject_enabled:
+        return None
+    cfg = getattr(runtime, "config", None) or {}
+    session_id = (cfg.get("configurable") or {}).get("thread_id")
+    if not session_id:
+        return None
+    try:
+        pending = await task_delivery.consume_pending_for_session(session_id)
+    except Exception as e:
+        logger.warning(f"投递消费失败，跳过注入: {e}")
+        return None
+    if not pending:
+        return None
+    lines = ["[系统] 你此前派发的排障任务已完成："]
+    for t in pending:
+        lines.append(f"- {t.task_id}（状态 {t.status.value}），可用 get_task_report 查看详情")
+    return {"messages": [SystemMessage(content="\n".join(lines))]}
+
+
 class RagAgentService:
     """RAG Agent 服务 - 使用 LangGraph + LangChain create_agent"""
 
@@ -159,7 +189,7 @@ class RagAgentService:
             self.model,
             tools=all_tools,
             checkpointer=self.checkpointer,
-            middleware=[trim_messages_middleware],
+            middleware=[trim_messages_middleware, inject_task_delivery_middleware],
         )
 
         self._agent_initialized = True
@@ -187,7 +217,7 @@ class RagAgentService:
             self.model,
             tools=self.tools + self.mcp_tools,
             checkpointer=self.checkpointer,
-            middleware=[trim_messages_middleware],
+            middleware=[trim_messages_middleware, inject_task_delivery_middleware],
         )
         # 仅当 MCP 工具已加载时才认为初始化完成，否则保留给 _initialize_agent 懒加载
         self._agent_initialized = bool(self.mcp_tools)
