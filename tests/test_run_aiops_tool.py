@@ -78,15 +78,34 @@ def test_list_my_tasks_lists_session_tasks(tmp_path):
     assert "查日志" in out
 
 
-def test_agent_only_tools_excluded_from_aiops_nodes():
-    """对话侧三工具须在 DEFAULT_LOCAL_AGENT_TOOLS 里，但被 P-E-R 过滤掉（防递归排障）。"""
-    from app.tools import DEFAULT_LOCAL_AGENT_TOOLS, _AGENT_ONLY_TOOLS
+def test_chat_only_tools_registered_in_default_set():
+    """对话侧三工具须注册进 DEFAULT_LOCAL_AGENT_TOOLS（供对话 Agent 绑定）。"""
+    from app.tools import DEFAULT_LOCAL_AGENT_TOOLS
 
     names = {t.name for t in DEFAULT_LOCAL_AGENT_TOOLS}
     assert {"run_aiops", "get_task_report", "list_my_tasks"} <= names, \
         "对话侧三工具应注册进 DEFAULT_LOCAL_AGENT_TOOLS"
 
-    filtered = {t.name for t in DEFAULT_LOCAL_AGENT_TOOLS if t.name not in _AGENT_ONLY_TOOLS}
-    assert "run_aiops" not in filtered, "执行体必须排除 run_aiops（防排障递归调用排障）"
-    assert "get_task_report" not in filtered
-    assert "list_my_tasks" not in filtered
+
+def test_aiops_nodes_exclude_chat_only_tools():
+    """P-E-R 三节点必须真的过滤掉对话侧工具（防排障递归调用排障）。
+
+    直接检查节点源码：若谁把过滤删了，本测试必须失败。
+    （不启图 —— 启图需 Milvus/LLM，代价过高；这里校验的是过滤的存在性。）
+    """
+    import inspect
+    import importlib
+
+    for mod_name in ("app.agent.aiops.planner",
+                     "app.agent.aiops.executor",
+                     "app.agent.aiops.replanner"):
+        mod = importlib.import_module(mod_name)
+        src = inspect.getsource(mod)
+        assert "DEFAULT_LOCAL_AGENT_TOOLS" in src, f"{mod_name} 应引用默认工具集"
+        assert "_AGENT_ONLY_TOOLS" in src, (
+            f"{mod_name} 未引用 _AGENT_ONLY_TOOLS —— 对话侧工具未被排除，排障会递归调用排障"
+        )
+        # 进一步确认是"过滤"而非"仅导入"：必须同时出现两者且构成排除式
+        assert "not in _AGENT_ONLY_TOOLS" in src, (
+            f"{mod_name} 缺少 `not in _AGENT_ONLY_TOOLS` 过滤式"
+        )
