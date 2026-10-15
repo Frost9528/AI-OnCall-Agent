@@ -227,6 +227,33 @@ class TaskRegistry:
             ).fetchone()
         return self._row_to_record(row) if row else None
 
+    def claim_pending_for_session(self, session_id: str) -> List[TaskRecord]:
+        """原子认领该会话的待投递记录（并发安全）。
+
+        先取候选，再用条件 UPDATE（WHERE delivery_status = 'pending'）逐个认领：
+        只有 rowcount == 1 的才算认领成功。这样两个并发会话不会重复注入同一通知
+        （SQLite 单写者 + WHERE 守卫提供跨进程安全；进程内锁只作补充）。
+        """
+        now = datetime.now(timezone.utc).isoformat()
+        with self._lock, self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM aiops_tasks WHERE session_id = ? AND delivery_status = ? "
+                "AND trigger = ? ORDER BY updated_at ASC",
+                (session_id, DeliveryStatus.PENDING.value, TriggerSource.CHAT.value),
+            ).fetchall()
+            claimed: List[TaskRecord] = []
+            for row in rows:
+                cur = conn.execute(
+                    "UPDATE aiops_tasks SET delivery_status = ?, delivered_at = ?, "
+                    "delivery_attempts = delivery_attempts + 1, updated_at = ? "
+                    "WHERE task_id = ? AND delivery_status = ?",
+                    (DeliveryStatus.SENT.value, now, now,
+                     row["task_id"], DeliveryStatus.PENDING.value),
+                )
+                if cur.rowcount == 1:
+                    claimed.append(self._row_to_record(row))
+            return claimed
+
     def list_by_session(self, session_id: str) -> List[TaskRecord]:
         with self._lock, self._connect() as conn:
             rows = conn.execute(

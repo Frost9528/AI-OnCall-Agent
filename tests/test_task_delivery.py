@@ -45,6 +45,7 @@ def test_consume_is_idempotent(tmp_path):
     assert [t.task_id for t in first] == ["x"]
     assert second == [], "第二次消费应为空（幂等）"
     assert reg.get("x").delivery_status is DeliveryStatus.SENT
+    assert reg.get("x").delivery_attempts == 1, "同一通知只能被认领一次"
 
 
 def test_delivery_failure_does_not_rollback_task_status(tmp_path):

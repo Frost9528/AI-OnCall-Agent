@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import List, Optional
 
 from loguru import logger
@@ -42,19 +42,8 @@ class TaskDelivery:
         logger.info(f"[任务 {task_id}] 投递标记 pending 目标={task.parent_session}")
 
     async def consume_pending_for_session(self, session_id: str) -> List[TaskRecord]:
-        """取该会话待注入的交付并标 sent（幂等：第二次返回空）。"""
-        pending = [
-            t for t in self.registry.list_by_session(session_id)
-            if t.delivery_status is DeliveryStatus.PENDING
-            and t.trigger is TriggerSource.CHAT
-        ]
-        for t in pending:
-            self.registry.set_delivery(
-                t.task_id, DeliveryStatus.SENT,
-                attempts=(t.delivery_attempts or 0) + 1,
-                delivered_at=datetime.now(timezone.utc),
-            )
-        return pending
+        """原子认领该会话待注入的交付并标 sent（幂等：第二次返回空）。"""
+        return self.registry.claim_pending_for_session(session_id)
 
     async def deliver_pending(self, limit: int = 20) -> int:
         """扫描 pending 并重试；超限标 failed。返回处理条数。
