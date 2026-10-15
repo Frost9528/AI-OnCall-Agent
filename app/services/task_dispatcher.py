@@ -95,6 +95,24 @@ class TaskDispatcher:
 
         return task
 
+    async def resume(self, task: TaskRecord, background: Optional[bool] = None) -> None:
+        """从最新 checkpoint 续跑一个已存在的任务（后台）。
+
+        与 dispatch 的区别：不新建任务、不重置 thread，按原 task_id 的 checkpoint
+        续跑，故不会重放已完成步骤（design §4.3②）。
+        """
+        from app.services.aiops_service import aiops_service
+
+        async def runner(t: TaskRecord) -> None:
+            async for _ in aiops_service.run_task(t, resume=True):
+                pass
+
+        use_bg = config.task_background_execution if background is None else background
+        if use_bg:
+            self._spawn(self._guarded(task, runner))
+        else:
+            await runner(task)
+
     async def _guarded(self, task: TaskRecord, runner: Runner) -> None:
         """后台执行的安全包装：异常必须被接住，否则静默丢失。"""
         from app.models.task import TaskStatus

@@ -17,6 +17,26 @@ from app.core.milvus_client import milvus_manager
 from app.core.checkpointer import create_async_checkpointer
 from app.services.aiops_service import aiops_service
 from app.services.rag_agent_service import rag_agent_service
+from app.services.task_delivery import task_delivery
+from app.services.task_dispatcher import dispatcher
+
+
+async def apply_startup_recovery() -> None:
+    """启动恢复：补偿投递 + 可选自动续跑（auto 类任务，从 checkpoint 续）。"""
+    from app.models.task import InterruptMode
+
+    try:
+        delivered = await task_delivery.deliver_pending()
+        if delivered:
+            logger.info(f"📮 启动补偿投递处理 {delivered} 条")
+    except Exception as e:
+        logger.warning(f"启动补偿投递失败（不影响启动）: {e}")
+
+    if not config.auto_resume_on_startup:
+        return
+    for task in aiops_service.list_resumable_tasks():
+        if task.interrupt is InterruptMode.AUTO:
+            await dispatcher.resume(task)
 
 
 @asynccontextmanager
@@ -47,23 +67,7 @@ async def lifespan(app: FastAPI):
         if resumable:
             await aiops_service.classify_interrupt_modes(resumable)
 
-        # 补偿投递：上次进程死掉时留下 pending 的，标记/重试
-        from app.services.task_delivery import task_delivery
-        delivered = await task_delivery.deliver_pending()
-        if delivered:
-            logger.info(f"📮 启动补偿投递处理 {delivered} 条")
-
-        # 自动续跑（默认关闭；开启时仅续 interrupt=auto 的任务）
-        if config.auto_resume_on_startup:
-            from app.services.task_dispatcher import dispatcher
-            for t in resumable:
-                if t.interrupt.value == "auto":
-                    await dispatcher.dispatch(
-                        t.input,
-                        trigger=t.trigger,
-                        session_id=t.session_id,
-                        parent_session=t.parent_session,
-                    )
+        await apply_startup_recovery()
 
         logger.info("=" * 60)
 
