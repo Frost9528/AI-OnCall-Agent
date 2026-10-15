@@ -61,6 +61,28 @@ class InterruptMode(str, Enum):
     MANUAL = "manual"
 
 
+class TriggerSource(str, Enum):
+    """任务触发源（决定结果去向与 time_anchor 来源）。"""
+    CHAT = "chat"       # 对话 Agent 派发 → 结果可回填对话
+    ALERT = "alert"     # 告警 webhook 自动派发 → 结果只落库
+    MANUAL = "manual"   # API 手动提交
+
+
+class DeliveryStatus(str, Enum):
+    """投递状态机（与 task status 独立）。
+
+    分开的原因：任务 done 了但通知可能送不到（会话被清空）。
+    投递失败**不回滚**任务状态。
+    """
+    NONE = "none"         # 无需投递（如 alert/manual 触发，本期无通知出口）
+    PENDING = "pending"   # 待投递
+    SENT = "sent"         # 投递成功（终态）
+    FAILED = "failed"     # 重试超限（终态）
+
+
+TERMINAL_DELIVERY_STATUSES = frozenset({DeliveryStatus.SENT, DeliveryStatus.FAILED})
+
+
 class TaskRecord(BaseModel):
     """一条排障任务的注册信息"""
 
@@ -98,6 +120,14 @@ class TaskRecord(BaseModel):
         default=InterruptMode.MANUAL,
         description="恢复安全性：auto 可直接续跑，manual 需人工决策后显式续",
     )
+    trigger: TriggerSource = Field(
+        default=TriggerSource.MANUAL, description="触发源：决定结果去向与 time_anchor 来源"
+    )
+    delivery_status: DeliveryStatus = Field(
+        default=DeliveryStatus.NONE, description="投递状态（与 status 独立）"
+    )
+    delivery_attempts: int = Field(default=0, description="投递尝试次数（有界重试）")
+    delivered_at: Optional[datetime] = Field(default=None, description="投递成功时刻")
 
     def touch(self) -> None:
         """更新 updated_at。"""

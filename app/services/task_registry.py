@@ -20,7 +20,14 @@ from typing import List, Optional
 from loguru import logger
 
 from app.config import config
-from app.models.task import InterruptMode, RESUMABLE_STATUSES, TaskRecord, TaskStatus
+from app.models.task import (
+    DeliveryStatus,
+    InterruptMode,
+    RESUMABLE_STATUSES,
+    TaskRecord,
+    TaskStatus,
+    TriggerSource,
+)
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS aiops_tasks (
@@ -38,7 +45,11 @@ CREATE TABLE IF NOT EXISTS aiops_tasks (
     time_anchor    TEXT,
     result_ref     TEXT,
     interrupt      TEXT NOT NULL DEFAULT 'manual',
-    report         TEXT
+    report         TEXT,
+    trigger        TEXT NOT NULL DEFAULT 'manual',
+    delivery_status TEXT NOT NULL DEFAULT 'none',
+    delivery_attempts INTEGER NOT NULL DEFAULT 0,
+    delivered_at   TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_aiops_tasks_status ON aiops_tasks(status);
 CREATE INDEX IF NOT EXISTS idx_aiops_tasks_session ON aiops_tasks(session_id);
@@ -48,6 +59,10 @@ CREATE INDEX IF NOT EXISTS idx_aiops_tasks_session ON aiops_tasks(session_id);
 _MIGRATIONS = (
     ("interrupt", "ALTER TABLE aiops_tasks ADD COLUMN interrupt TEXT NOT NULL DEFAULT 'manual'"),
     ("report", "ALTER TABLE aiops_tasks ADD COLUMN report TEXT"),
+    ("trigger", "ALTER TABLE aiops_tasks ADD COLUMN trigger TEXT NOT NULL DEFAULT 'manual'"),
+    ("delivery_status", "ALTER TABLE aiops_tasks ADD COLUMN delivery_status TEXT NOT NULL DEFAULT 'none'"),
+    ("delivery_attempts", "ALTER TABLE aiops_tasks ADD COLUMN delivery_attempts INTEGER NOT NULL DEFAULT 0"),
+    ("delivered_at", "ALTER TABLE aiops_tasks ADD COLUMN delivered_at TEXT"),
 )
 
 
@@ -98,8 +113,9 @@ class TaskRegistry:
                 INSERT INTO aiops_tasks (
                     task_id, owner, session_id, parent_session, thread_id, input,
                     status, created_at, updated_at, checkpoint_ref, plan_version,
-                    time_anchor, result_ref, interrupt, report
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    time_anchor, result_ref, interrupt, report, trigger,
+                    delivery_status, delivery_attempts, delivered_at
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
                     task.task_id,
@@ -117,6 +133,10 @@ class TaskRegistry:
                     task.result_ref,
                     task.interrupt.value,
                     task.report,
+                    task.trigger.value,
+                    task.delivery_status.value,
+                    task.delivery_attempts,
+                    task.delivered_at.isoformat() if task.delivered_at else None,
                 ),
             )
         logger.info(f"任务已登记: {task.task_id} (session={task.session_id}, status={task.status.value})")
@@ -172,6 +192,30 @@ class TaskRegistry:
             if cur.rowcount == 0:
                 return None
         logger.info(f"任务 {task_id} 恢复模式: {mode.value}")
+        return self.get(task_id)
+
+    def set_delivery(
+        self,
+        task_id: str,
+        status: DeliveryStatus,
+        *,
+        attempts: Optional[int] = None,
+        delivered_at: Optional[datetime] = None,
+    ) -> Optional[TaskRecord]:
+        """更新投递状态；返回更新后记录（不存在则 None）。"""
+        sets = ["delivery_status = ?", "updated_at = ?"]
+        params: list = [status.value, datetime.now(timezone.utc).isoformat()]
+        if attempts is not None:
+            sets.append("delivery_attempts = ?"); params.append(attempts)
+        if delivered_at is not None:
+            sets.append("delivered_at = ?"); params.append(delivered_at.isoformat())
+        params.append(task_id)
+        with self._lock, self._connect() as conn:
+            cur = conn.execute(
+                f"UPDATE aiops_tasks SET {', '.join(sets)} WHERE task_id = ?", params
+            )
+            if cur.rowcount == 0:
+                return None
         return self.get(task_id)
 
     # ---------- 读 ----------
@@ -287,6 +331,10 @@ class TaskRegistry:
             result_ref=row["result_ref"],
             interrupt=InterruptMode(row["interrupt"] or InterruptMode.MANUAL.value),
             report=row["report"],
+            trigger=TriggerSource(row["trigger"] or TriggerSource.MANUAL.value),
+            delivery_status=DeliveryStatus(row["delivery_status"] or DeliveryStatus.NONE.value),
+            delivery_attempts=row["delivery_attempts"] or 0,
+            delivered_at=_dt(row["delivered_at"]),
         )
 
 
