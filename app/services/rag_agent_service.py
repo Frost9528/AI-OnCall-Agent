@@ -174,6 +174,12 @@ class RagAgentService:
 
         与 aiops_service.attach_checkpointer 同模式：图在编译时绑定 checkpointer，
         无法替换实例，故重建。
+
+        注意：MCP 工具在 ``_initialize_agent`` 中懒加载。若此处直接置
+        ``_agent_initialized = True``，lifespan 先于首次请求调用本方法，会导致
+        ``_initialize_agent`` 早退、MCP 工具永不加载。故仅当 MCP 工具已加载
+        （``mcp_tools`` 非空）时才标记 agent 初始化完成；否则保持 False，
+        让首次请求仍走 ``_initialize_agent`` 加载 MCP 工具并重建 agent。
         """
         self.checkpointer = checkpointer
         self._agent_initialized = False          # 强制重建 agent
@@ -183,9 +189,9 @@ class RagAgentService:
             checkpointer=self.checkpointer,
             middleware=[trim_messages_middleware],
         )
-        self._agent_initialized = True
-        self._persistent = not isinstance(checkpointer, MemorySaver)
-        logger.info(f"对话 Agent 已挂载 checkpointer: {type(checkpointer).__name__}")
+        # 仅当 MCP 工具已加载时才认为初始化完成，否则保留给 _initialize_agent 懒加载
+        self._agent_initialized = bool(self.mcp_tools)
+        logger.info(f"对话 Agent 已挂载 checkpointer: {type(checkpointer).__name__}（初始化={self._agent_initialized}）")
 
     def _build_system_prompt(self) -> str:
         """
