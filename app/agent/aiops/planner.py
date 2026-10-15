@@ -11,7 +11,7 @@ from loguru import logger
 
 from app.config import config
 from app.core.llm_factory import llm_factory
-from app.tools import DEFAULT_LOCAL_AGENT_TOOLS, retrieve_knowledge
+from app.tools import DEFAULT_LOCAL_AGENT_TOOLS, _AGENT_ONLY_TOOLS, retrieve_knowledge
 from app.agent.mcp_client import get_mcp_client_with_retry
 from .state import PlanExecuteState
 from .utils import format_tools_description
@@ -104,8 +104,8 @@ async def planner(state: PlanExecuteState) -> Dict[str, Any]:
             logger.warning(f"查询内部文档失败: {e}")
 
         # 步骤2: 获取可用工具列表
-        # 获取本地工具
-        local_tools = list(DEFAULT_LOCAL_AGENT_TOOLS)
+        # 获取本地工具（排除对话侧专属工具，防排障递归调用排障）
+        local_tools = [t for t in DEFAULT_LOCAL_AGENT_TOOLS if t.name not in _AGENT_ONLY_TOOLS]
 
         # 获取 MCP 工具
         mcp_client = await get_mcp_client_with_retry()
