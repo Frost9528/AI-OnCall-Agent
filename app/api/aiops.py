@@ -3,7 +3,7 @@ AIOps 智能运维接口
 """
 
 import json
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from sse_starlette.sse import EventSourceResponse
 from loguru import logger
 
@@ -271,7 +271,7 @@ async def resume_task(request: TaskResumeRequest):
 
 
 @router.get("/aiops/tasks")
-async def list_tasks(status: str | None = None, limit: int = 50):
+async def list_tasks(status: str | None = None, limit: int = Query(50, ge=1, le=200)):
     """列出排障任务（看板）。status 逗号分隔，如 status=running,done。"""
     statuses = []
     if status:

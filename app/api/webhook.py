@@ -34,11 +34,11 @@ async def alert_webhook(payload: AlertmanagerPayload):
     # time_anchor 取告警 startsAt（时间语义：查告警当时窗口，而非 now）
     anchor = None
     starts = payload.alerts[0].get("startsAt")
-    if starts:
+    if isinstance(starts, str) and starts:
         try:
             from datetime import datetime
             anchor = datetime.fromisoformat(starts.replace("Z", "+00:00"))
-        except ValueError:
+        except (ValueError, TypeError):
             logger.warning(f"无法解析告警 startsAt: {starts}")
 
     task = await dispatcher.dispatch(
