@@ -65,6 +65,7 @@ class Settings(BaseSettings):
 
     # 长任务编排
     task_background_execution: bool = True     # 关 → 同步内联执行（降级路径）
+    auto_resume_on_startup: bool = False      # 默认不自动续跑（避免意外烧配额）
     max_delivery_attempts: int = 3
     context_inject_enabled: bool = False       # 通道2 开关，默认关
 

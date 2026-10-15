@@ -138,6 +138,8 @@ Get-ChildItem aiops-docs\*.md | ForEach-Object { curl.exe -s -X POST http://loca
 | 流式对话 | POST | `/api/chat_stream` | SSE 流式输出 |
 | AIOps 诊断 | POST | `/api/aiops` | 自动故障诊断（流式） |
 | 提交排障任务 | POST | `/api/aiops/tasks` | 先登记任务、同步返回 `task_id`（供 resume / 查结果） |
+| 告警 webhook | POST | `/api/aiops/webhook` | 接收 firing 告警并异步派发 AIOps 长任务 |
+| 任务列表 | GET | `/api/aiops/tasks` | 按状态筛选任务，返回状态、投递与报告摘要 |
 | 恢复中断任务 | POST | `/api/aiops/resume` | 凭 `task_id` 从断点续跑，不重放已完成步 |
 | 待恢复清单 | GET | `/api/aiops/tasks/resumable` | 只列 `ejected`；含 `interrupt`（auto/manual） |
 | 查询任务结果 | GET | `/api/aiops/tasks/{task_id}` | 状态 + `report` 最终报告正文 |

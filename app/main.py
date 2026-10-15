@@ -47,6 +47,24 @@ async def lifespan(app: FastAPI):
         if resumable:
             await aiops_service.classify_interrupt_modes(resumable)
 
+        # 补偿投递：上次进程死掉时留下 pending 的，标记/重试
+        from app.services.task_delivery import task_delivery
+        delivered = await task_delivery.deliver_pending()
+        if delivered:
+            logger.info(f"📮 启动补偿投递处理 {delivered} 条")
+
+        # 自动续跑（默认关闭；开启时仅续 interrupt=auto 的任务）
+        if config.auto_resume_on_startup:
+            from app.services.task_dispatcher import dispatcher
+            for t in resumable:
+                if t.interrupt.value == "auto":
+                    await dispatcher.dispatch(
+                        t.input,
+                        trigger=t.trigger,
+                        session_id=t.session_id,
+                        parent_session=t.parent_session,
+                    )
+
         logger.info("=" * 60)
 
         yield
