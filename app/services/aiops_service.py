@@ -17,8 +17,8 @@ from loguru import logger
 
 from app.agent.aiops import PlanExecuteState, planner, executor, replanner
 from app.agent.aiops.failure import FailureKind
-from app.models.task import InterruptMode, TaskRecord, TaskStatus
-from app.services.task_registry import task_registry
+from app.models.task import InterruptMode, TaskRecord, TaskStatus, TriggerSource
+from app.services.task_registry import TaskRegistry, task_registry
 
 
 # 内置诊断模板正文（见文件末尾 default_diagnosis_input()）
@@ -204,6 +204,8 @@ class AIOpsService:
         owner: str = "anonymous",
         parent_session: Optional[str] = None,
         time_anchor: Optional[datetime] = None,
+        trigger: TriggerSource = TriggerSource.MANUAL,
+        registry: Optional[TaskRegistry] = None,
     ) -> TaskRecord:
         """登记一个新排障任务。
 
@@ -212,6 +214,8 @@ class AIOpsService:
 
         time_anchor 记录"任务被创建的那一刻"：时间敏感查询（查某告警当时活跃窗口）
         恢复时应沿用它而非按 now 重查，避免答非所问（E5）。
+
+        registry 默认用全局单例；派发器可注入自有注册表（测试/隔离场景）。
         """
         task_id = new_task_id()
         task = TaskRecord(
@@ -224,8 +228,9 @@ class AIOpsService:
             status=TaskStatus.RUNNING,
             checkpoint_ref=task_id,
             time_anchor=time_anchor or datetime.now(timezone.utc),
+            trigger=trigger,
         )
-        return task_registry.create(task)
+        return (registry or task_registry).create(task)
 
     def get_task(self, task_id: str) -> Optional[TaskRecord]:
         return task_registry.get(task_id)
