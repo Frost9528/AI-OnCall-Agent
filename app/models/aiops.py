@@ -51,6 +51,12 @@ class TaskResumeRequest(BaseModel):
     )
 
 
+class AlertmanagerPayload(BaseModel):
+    """Alertmanager webhook 载荷（只取需要的字段，宽容匹配）。"""
+    status: str = "firing"
+    alerts: List[Dict[str, Any]] = Field(default_factory=list)
+
+
 class AlertInfo(BaseModel):
     """告警信息"""
     alertname: str

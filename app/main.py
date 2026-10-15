@@ -12,7 +12,7 @@ import os
 
 from app.config import config
 from loguru import logger
-from app.api import chat, health, file, aiops
+from app.api import chat, health, file, aiops, webhook
 from app.core.milvus_client import milvus_manager
 from app.core.checkpointer import create_async_checkpointer
 from app.services.aiops_service import aiops_service
@@ -79,6 +79,7 @@ app.include_router(health.router, tags=["健康检查"])
 app.include_router(chat.router, prefix="/api", tags=["对话"])
 app.include_router(file.router, prefix="/api", tags=["文件管理"])
 app.include_router(aiops.router, prefix="/api", tags=["AIOps智能运维"])
+app.include_router(webhook.router, prefix="/api", tags=["webhook"])
 
 # 挂载静态文件
 static_dir = "static"

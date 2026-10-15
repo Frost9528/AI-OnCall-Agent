@@ -8,7 +8,9 @@ from sse_starlette.sse import EventSourceResponse
 from loguru import logger
 
 from app.models.aiops import AIOpsRequest, TaskResumeRequest, TaskSubmitRequest
+from app.models.task import TaskStatus
 from app.services.aiops_service import aiops_service, default_diagnosis_input
+from app.services.task_registry import task_registry
 from app.utils.input_validation import validate_user_input
 
 router = APIRouter()
@@ -266,6 +268,20 @@ async def resume_task(request: TaskResumeRequest):
             })
 
     return EventSourceResponse(event_generator())
+
+
+@router.get("/aiops/tasks")
+async def list_tasks(status: str | None = None, limit: int = 50):
+    """列出排障任务（看板）。status 逗号分隔，如 status=running,done。"""
+    statuses = []
+    if status:
+        try:
+            statuses = [TaskStatus(s.strip()) for s in status.split(",") if s.strip()]
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=f"非法状态值: {e}")
+    tasks = task_registry.list_by_status(statuses, limit=min(limit, 200))
+    return {"code": 200, "message": "success",
+            "data": {"total": len(tasks), "tasks": [t.to_dict() for t in tasks]}}
 
 
 @router.get("/aiops/tasks/resumable")

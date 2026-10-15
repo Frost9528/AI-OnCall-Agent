@@ -262,6 +262,22 @@ class TaskRegistry:
             ).fetchall()
         return [self._row_to_record(r) for r in rows]
 
+    def list_by_status(self, statuses: list, limit: int = 50) -> List[TaskRecord]:
+        """按状态列出任务（看板用）。statuses 为空则返回全部。"""
+        with self._lock, self._connect() as conn:
+            if statuses:
+                ph = ",".join("?" for _ in statuses)
+                rows = conn.execute(
+                    f"SELECT * FROM aiops_tasks WHERE status IN ({ph}) "
+                    f"ORDER BY created_at DESC LIMIT ?",
+                    [s.value for s in statuses] + [limit],
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM aiops_tasks ORDER BY created_at DESC LIMIT ?", (limit,)
+                ).fetchall()
+        return [self._row_to_record(r) for r in rows]
+
     def list_resumable(self) -> List[TaskRecord]:
         """待恢复清单：只含 ``ejected``。
 
