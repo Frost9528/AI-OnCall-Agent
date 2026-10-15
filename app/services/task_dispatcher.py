@@ -101,6 +101,12 @@ class TaskDispatcher:
 
         try:
             await runner(task)
+        except asyncio.CancelledError:
+            # 服务关闭导致的取消：任务是"可恢复的进行中工作"，不是失败。
+            # 标 ejected（可恢复候选），而非 failed（终态、丢弃可恢复性）。
+            logger.warning(f"[任务 {task.task_id}] 后台执行被取消（服务关闭），标为可恢复")
+            self.registry.mark_ejected(task.task_id)
+            raise                      # 不要吞掉取消信号，否则会破坏 asyncio 的关闭语义
         except BaseException as e:          # 含 CancelledError（服务关闭）
             logger.error(f"[任务 {task.task_id}] 后台执行异常: {e}", exc_info=True)
             self.registry.update_status(task.task_id, TaskStatus.FAILED)

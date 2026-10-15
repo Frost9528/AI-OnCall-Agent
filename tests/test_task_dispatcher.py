@@ -112,3 +112,29 @@ def test_background_false_runs_inline(tmp_path):
     rec = asyncio.run(d.dispatch("同步", trigger=TriggerSource.MANUAL,
                                  session_id="s1", background=False))
     assert rec.task_id in done
+
+
+def test_cancelled_task_marked_ejected_not_failed(tmp_path):
+    """服务关闭导致的取消应标 ejected（可恢复），而非 failed（终态）。"""
+    gate = asyncio.Event()
+
+    async def runner(task):
+        await gate.wait()
+
+    d = _dispatcher(tmp_path, runner)
+
+    async def go():
+        rec = await d.dispatch("被取消", trigger=TriggerSource.MANUAL, session_id="s1")
+        await asyncio.sleep(0)                 # 让后台起来
+        (bg_task,) = list(d._bg)               # 当前唯一后台协程
+        bg_task.cancel()
+        try:
+            await bg_task
+        except asyncio.CancelledError:
+            pass                                # 取消正是我们制造的场景
+        return rec
+
+    rec = asyncio.run(go())
+    stored = d.registry.get(rec.task_id)
+    assert stored.status is TaskStatus.EJECTED, f"应为 ejected，实际 {stored.status}"
+    assert stored.status is not TaskStatus.FAILED
