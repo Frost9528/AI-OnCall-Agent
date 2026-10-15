@@ -65,6 +65,8 @@ class Settings(BaseSettings):
 
     # 长任务编排
     task_background_execution: bool = True     # 关 → 同步内联执行（降级路径）
+    max_delivery_attempts: int = 3
+    context_inject_enabled: bool = False       # 通道2 开关，默认关
 
     # 多模态版面解析（P1-4）：云端飞桨 OCR，开关式接入
     # 未配置 key / 关闭开关时，/upload 退回纯文本链路，不影响启动与既有功能。

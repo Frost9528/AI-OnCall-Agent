@@ -250,6 +250,16 @@ class TaskRegistry:
             ).fetchall()
         return [self._row_to_record(r) for r in rows]
 
+    def list_pending_deliveries(self, limit: int = 20) -> List[TaskRecord]:
+        """待投递任务（delivery_status=pending）。"""
+        with self._lock, self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM aiops_tasks WHERE delivery_status = ? "
+                "ORDER BY updated_at ASC LIMIT ?",
+                (DeliveryStatus.PENDING.value, limit),
+            ).fetchall()
+        return [self._row_to_record(r) for r in rows]
+
     def find_running_by_session(self, session_id: str) -> Optional[TaskRecord]:
         """查该会话是否有正在跑的任务（会话级单飞行约束，见 §4.0）。"""
         with self._lock, self._connect() as conn:
