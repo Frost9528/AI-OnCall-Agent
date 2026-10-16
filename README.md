@@ -96,7 +96,12 @@ DEEPSEEK_API_KEY=sk-...          # 对话/推理模型
 DEEPSEEK_MODEL=deepseek-flash
 DASHSCOPE_API_KEY=sk-...         # 嵌入模型（检索用）
 DASHSCOPE_EMBEDDING_MODEL=text-embedding-v4
+TASK_API_TOKEN=<strong-random-secret>       # 任务提交、列表、详情、resume API
+ALERT_WEBHOOK_TOKEN=<strong-random-secret>  # Alertmanager webhook
 ```
+
+任务 API 与 webhook 分别使用 Bearer token（`Authorization: Bearer ...`）；任一 token 未配置时，对应接口返回 503 并拒绝访问。生成独立的强随机密钥并通过安全渠道配置。当前是单实例共享密钥，不提供多用户/租户级身份鉴权；不要将服务直接暴露到不可信网络。
+
 
 > ⚠️ **两个易踩的坑**
 > 1. `.env` 注释只能用 `#`，**不能用 `;`** —— 否则 Docker Compose 会拒绝启动。
@@ -137,12 +142,12 @@ Get-ChildItem aiops-docs\*.md | ForEach-Object { curl.exe -s -X POST http://loca
 | 普通对话 | POST | `/api/chat` | 一次性返回 |
 | 流式对话 | POST | `/api/chat_stream` | SSE 流式输出 |
 | AIOps 诊断 | POST | `/api/aiops` | 自动故障诊断（流式） |
-| 提交排障任务 | POST | `/api/aiops/tasks` | 先登记任务、同步返回 `task_id`（供 resume / 查结果） |
-| 告警 webhook | POST | `/api/aiops/webhook` | 接收 firing 告警并异步派发 AIOps 长任务 |
-| 任务列表 | GET | `/api/aiops/tasks` | 按状态筛选任务，返回状态、投递与报告摘要 |
-| 恢复中断任务 | POST | `/api/aiops/resume` | 凭 `task_id` 从断点续跑，不重放已完成步 |
+| 提交排障任务 | POST | `/api/aiops/tasks` | 先登记任务、同步返回 `task_id`（Bearer `TASK_API_TOKEN`） |
+| 告警 webhook | POST | `/api/aiops/webhook` | 接收 firing 告警并异步派发（Bearer `ALERT_WEBHOOK_TOKEN`） |
+| 任务列表 | GET | `/api/aiops/tasks` | 按状态筛选任务（Bearer `TASK_API_TOKEN`） |
+| 恢复中断任务 | POST | `/api/aiops/resume` | 凭 `task_id` 从断点续跑（Bearer `TASK_API_TOKEN`） |
 | 待恢复清单 | GET | `/api/aiops/tasks/resumable` | 只列 `ejected`；含 `interrupt`（auto/manual） |
-| 查询任务结果 | GET | `/api/aiops/tasks/{task_id}` | 状态 + `report` 最终报告正文 |
+| 查询任务结果 | GET | `/api/aiops/tasks/{task_id}` | 状态 + `report` 最终报告正文（Bearer `TASK_API_TOKEN`） |
 | 文件上传 | POST | `/api/upload` | 上传并索引文档（PDF/图片走版面解析） |
 | 健康检查 | GET | `/api/health` | 服务状态检查 |
 
@@ -172,15 +177,19 @@ curl -X POST "http://localhost:9900/api/aiops" \
 ```bash
 # 1) 提交，同步拿到 task_id
 TASK=$(curl -s -X POST "http://localhost:9900/api/aiops/tasks" \
+  -H "Authorization: Bearer $TASK_API_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"session_id":"session-123"}' --no-buffer | head -1)
 
 # 2) 连接断了也没关系 —— 凭 task_id 查状态与最终报告
-curl -s "http://localhost:9900/api/aiops/tasks/<task_id>" | python -m json.tool
+curl -s -H "Authorization: Bearer $TASK_API_TOKEN" \
+  "http://localhost:9900/api/aiops/tasks/<task_id>" | python -m json.tool
 
 # 3) 若任务被中断（ejected），先看待恢复清单再续跑
-curl -s "http://localhost:9900/api/aiops/tasks/resumable"
+curl -s -H "Authorization: Bearer $TASK_API_TOKEN" \
+  "http://localhost:9900/api/aiops/tasks/resumable"
 curl -X POST "http://localhost:9900/api/aiops/resume" \
+  -H "Authorization: Bearer $TASK_API_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"task_id":"<task_id>"}' --no-buffer
 ```

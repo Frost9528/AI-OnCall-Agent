@@ -8,6 +8,7 @@ sys.modules.setdefault("app.services.vector_store_manager", MagicMock())
 from app.models.task import TaskRecord, TaskStatus, TriggerSource  # noqa: E402
 from app.services.task_dispatcher import TaskDispatcher  # noqa: E402
 from app.services.task_registry import TaskRegistry  # noqa: E402
+from app.services import task_delivery as task_delivery_module  # noqa: E402
 
 
 def _dispatcher(tmp_path, runner):
@@ -33,6 +34,80 @@ def test_dispatch_creates_task_with_trigger(tmp_path):
     assert rec.parent_session == "s1"
     assert rec.time_anchor is not None            # 自动落锚点
     assert d.registry.get(rec.task_id) is not None
+
+
+def test_inline_chat_dispatch_runs_settlement_delivery(tmp_path, monkeypatch):
+    async def runner(task):
+        d.registry.update_status(task.task_id, TaskStatus.DONE, report="done")
+
+    d = _dispatcher(tmp_path, runner)
+    monkeypatch.setattr(task_delivery_module.task_delivery, "registry", d.registry)
+    task = asyncio.run(d.dispatch(
+        "inline", trigger=TriggerSource.CHAT, session_id="inline-session",
+        parent_session="inline-session", background=False,
+    ))
+
+    settled = d.registry.get(task.task_id)
+    assert settled.status is TaskStatus.DONE
+    assert settled.delivery_status.value == "pending"
+
+
+def test_failed_chat_task_is_deliverable_with_failed_status(tmp_path, monkeypatch):
+    async def runner(task):
+        d.registry.update_status(task.task_id, TaskStatus.FAILED)
+
+    d = _dispatcher(tmp_path, runner)
+    monkeypatch.setattr(task_delivery_module.task_delivery, "registry", d.registry)
+    task = asyncio.run(d.dispatch(
+        "fail", trigger=TriggerSource.CHAT, session_id="failed-session",
+        parent_session="failed-session", background=False,
+    ))
+
+    settled = d.registry.get(task.task_id)
+    assert settled.status is TaskStatus.FAILED
+    assert settled.delivery_status.value == "pending"
+
+
+def test_resume_rejects_non_ejected_tasks(tmp_path):
+    d = _dispatcher(tmp_path, runner=None)
+    for status in (TaskStatus.QUEUED, TaskStatus.RUNNING, TaskStatus.DONE,
+                   TaskStatus.CANCELLED, TaskStatus.FAILED, TaskStatus.EXPIRED):
+        task = TaskRecord(
+            task_id=f"not-ejected-{status.value}", session_id="s", thread_id="x",
+            input="x", status=status,
+        )
+        d.registry.create(task)
+        try:
+            asyncio.run(d.resume(task, background=False))
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"resume must reject {status.value}")
+        assert d.registry.get(task.task_id).status is status
+
+
+def test_dispatch_idempotency_key_does_not_run_duplicate_task(tmp_path):
+    executed = []
+
+    async def runner(task):
+        executed.append(task.task_id)
+
+    d = _dispatcher(tmp_path, runner)
+
+    async def go():
+        first = await d.dispatch(
+            "alert", trigger=TriggerSource.ALERT, session_id="alert",
+            idempotency_key="fp-start-1", background=False,
+        )
+        second = await d.dispatch(
+            "alert retry", trigger=TriggerSource.ALERT, session_id="alert",
+            idempotency_key="fp-start-1", background=False,
+        )
+        return first, second
+
+    first, second = asyncio.run(go())
+    assert first.task_id == second.task_id
+    assert executed == [first.task_id]
 
 
 def test_chat_single_flight_returns_existing(tmp_path):

@@ -62,14 +62,22 @@ def test_get_task_report_returns_body_and_friendly_error(tmp_path):
                           input="x", status=TaskStatus.DONE, report="# 报告正文"))
     gtr = importlib.import_module("app.tools.get_task_report")
     with patch.object(gtr, "task_registry", reg):
-        assert "报告正文" in gtr.get_task_report.invoke({"task_id": "t-1"})
-        out = gtr.get_task_report.invoke({"task_id": "nope"})
-        assert "不存在" in out, "不存在应给友好错误而非抛异常"
+        assert "报告正文" in asyncio.run(gtr.get_task_report.ainvoke({
+            "task_id": "t-1", "runtime": FakeRuntime("s")
+        }))
+        out = asyncio.run(gtr.get_task_report.ainvoke({
+            "task_id": "nope", "runtime": FakeRuntime("s")
+        }))
+        assert "不存在" in out
+        private = asyncio.run(gtr.get_task_report.ainvoke({
+            "task_id": "t-1", "runtime": FakeRuntime("another-session")
+        }))
+        assert "不属于当前会话" in private, "不存在应给友好错误而非抛异常"
 
 
 def test_list_my_tasks_lists_session_tasks(tmp_path):
     reg = TaskRegistry(str(tmp_path / "t.sqlite"))
-    reg.create(TaskRecord(task_id="t-a", session_id="sess-1", thread_id="t-a",
+    reg.create(TaskRecord(task_id="t-a", session_id="sess-1", parent_session="sess-1", thread_id="t-a",
                           input="查日志", status=TaskStatus.DONE, report="r"))
     lmt = importlib.import_module("app.tools.list_my_tasks")
     with patch.object(lmt, "task_registry", reg):

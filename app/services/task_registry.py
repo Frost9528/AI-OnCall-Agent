@@ -49,7 +49,8 @@ CREATE TABLE IF NOT EXISTS aiops_tasks (
     trigger        TEXT NOT NULL DEFAULT 'manual',
     delivery_status TEXT NOT NULL DEFAULT 'none',
     delivery_attempts INTEGER NOT NULL DEFAULT 0,
-    delivered_at   TEXT
+    delivered_at   TEXT,
+    idempotency_key TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_aiops_tasks_status ON aiops_tasks(status);
 CREATE INDEX IF NOT EXISTS idx_aiops_tasks_session ON aiops_tasks(session_id);
@@ -63,6 +64,7 @@ _MIGRATIONS = (
     ("delivery_status", "ALTER TABLE aiops_tasks ADD COLUMN delivery_status TEXT NOT NULL DEFAULT 'none'"),
     ("delivery_attempts", "ALTER TABLE aiops_tasks ADD COLUMN delivery_attempts INTEGER NOT NULL DEFAULT 0"),
     ("delivered_at", "ALTER TABLE aiops_tasks ADD COLUMN delivered_at TEXT"),
+    ("idempotency_key", "ALTER TABLE aiops_tasks ADD COLUMN idempotency_key TEXT"),
 )
 
 
@@ -93,6 +95,10 @@ class TaskRegistry:
         with self._lock, self._connect() as conn:
             conn.executescript(_SCHEMA)
             self._apply_migrations(conn)
+            conn.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_aiops_tasks_idempotency "
+                "ON aiops_tasks(idempotency_key) WHERE idempotency_key IS NOT NULL"
+            )
 
     @staticmethod
     def _apply_migrations(conn: sqlite3.Connection) -> None:
@@ -105,42 +111,48 @@ class TaskRegistry:
 
     # ---------- 写 ----------
 
-    def create(self, task: TaskRecord) -> TaskRecord:
-        """登记一个新任务。"""
+    def create_idempotent(self, task: TaskRecord) -> tuple[TaskRecord, bool]:
+        """Create once for an idempotency key and report whether this call inserted it."""
         with self._lock, self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            if task.idempotency_key:
+                row = conn.execute(
+                    "SELECT * FROM aiops_tasks WHERE idempotency_key = ?",
+                    (task.idempotency_key,),
+                ).fetchone()
+                if row:
+                    return self._row_to_record(row), False
             conn.execute(
                 """
                 INSERT INTO aiops_tasks (
                     task_id, owner, session_id, parent_session, thread_id, input,
                     status, created_at, updated_at, checkpoint_ref, plan_version,
                     time_anchor, result_ref, interrupt, report, trigger,
-                    delivery_status, delivery_attempts, delivered_at
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    delivery_status, delivery_attempts, delivered_at, idempotency_key
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
-                    task.task_id,
-                    task.owner,
-                    task.session_id,
-                    task.parent_session,
-                    task.thread_id,
-                    task.input,
-                    task.status.value,
-                    task.created_at.isoformat(),
-                    task.updated_at.isoformat(),
-                    task.checkpoint_ref,
-                    task.plan_version,
+                    task.task_id, task.owner, task.session_id, task.parent_session,
+                    task.thread_id, task.input, task.status.value,
+                    task.created_at.isoformat(), task.updated_at.isoformat(),
+                    task.checkpoint_ref, task.plan_version,
                     task.time_anchor.isoformat() if task.time_anchor else None,
-                    task.result_ref,
-                    task.interrupt.value,
-                    task.report,
-                    task.trigger.value,
-                    task.delivery_status.value,
-                    task.delivery_attempts,
+                    task.result_ref, task.interrupt.value, task.report, task.trigger.value,
+                    task.delivery_status.value, task.delivery_attempts,
                     task.delivered_at.isoformat() if task.delivered_at else None,
+                    task.idempotency_key,
                 ),
             )
-        logger.info(f"任务已登记: {task.task_id} (session={task.session_id}, status={task.status.value})")
-        return task
+        return task, True
+
+    def create(self, task: TaskRecord) -> TaskRecord:
+        """登记一个新任务；若幂等键已存在则返回原任务。"""
+        record, created = self.create_idempotent(task)
+        if created:
+            logger.info(
+                f"任务已登记: {task.task_id} (session={task.session_id}, status={task.status.value})"
+            )
+        return record
 
     def update_status(
         self,
@@ -228,16 +240,14 @@ class TaskRegistry:
         return self._row_to_record(row) if row else None
 
     def claim_pending_for_session(self, session_id: str) -> List[TaskRecord]:
-        """原子认领该会话的待投递记录（并发安全）。
+        """原子认领路由到该会话的待投递记录（并发安全）。
 
-        先取候选，再用条件 UPDATE（WHERE delivery_status = 'pending'）逐个认领：
-        只有 rowcount == 1 的才算认领成功。这样两个并发会话不会重复注入同一通知
-        （SQLite 单写者 + WHERE 守卫提供跨进程安全；进程内锁只作补充）。
+        只有条件 UPDATE 成功的记录才会返回，避免并发重复注入。
         """
         now = datetime.now(timezone.utc).isoformat()
         with self._lock, self._connect() as conn:
             rows = conn.execute(
-                "SELECT * FROM aiops_tasks WHERE session_id = ? AND delivery_status = ? "
+                "SELECT * FROM aiops_tasks WHERE parent_session = ? AND delivery_status = ? "
                 "AND trigger = ? ORDER BY updated_at ASC",
                 (session_id, DeliveryStatus.PENDING.value, TriggerSource.CHAT.value),
             ).fetchall()
@@ -254,6 +264,27 @@ class TaskRegistry:
                     claimed.append(self._row_to_record(row))
             return claimed
 
+    def get_by_idempotency_key(self, idempotency_key: str) -> Optional[TaskRecord]:
+        with self._lock, self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM aiops_tasks WHERE idempotency_key = ?",
+                (idempotency_key,),
+            ).fetchone()
+        return self._row_to_record(row) if row else None
+
+    def transition_ejected_to_running(self, task_id: str) -> Optional[TaskRecord]:
+        """Atomically claim an ejected task for resume."""
+        now = datetime.now(timezone.utc).isoformat()
+        with self._lock, self._connect() as conn:
+            cur = conn.execute(
+                "UPDATE aiops_tasks SET status = ?, updated_at = ? "
+                "WHERE task_id = ? AND status = ?",
+                (TaskStatus.RUNNING.value, now, task_id, TaskStatus.EJECTED.value),
+            )
+            if cur.rowcount != 1:
+                return None
+        return self.get(task_id)
+
     def list_by_session(self, session_id: str) -> List[TaskRecord]:
         with self._lock, self._connect() as conn:
             rows = conn.execute(
@@ -261,6 +292,16 @@ class TaskRegistry:
                 (session_id,),
             ).fetchall()
         return [self._row_to_record(r) for r in rows]
+
+    def list_by_parent_session(self, session_id: str) -> List[TaskRecord]:
+        with self._lock, self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM aiops_tasks WHERE parent_session = ? "
+                "OR (parent_session IS NULL AND session_id = ?) "
+                "ORDER BY created_at DESC",
+                (session_id, session_id),
+            ).fetchall()
+        return [self._row_to_record(row) for row in rows]
 
     def list_by_status(self, statuses: list, limit: int = 50) -> List[TaskRecord]:
         """按状态列出任务（看板用）。statuses 为空则返回全部。"""
@@ -388,6 +429,7 @@ class TaskRegistry:
             delivery_status=DeliveryStatus(row["delivery_status"] or DeliveryStatus.NONE.value),
             delivery_attempts=row["delivery_attempts"] or 0,
             delivered_at=_dt(row["delivered_at"]),
+            idempotency_key=row["idempotency_key"],
         )
 
 

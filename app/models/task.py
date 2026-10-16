@@ -87,6 +87,7 @@ class TaskRecord(BaseModel):
     """一条排障任务的注册信息"""
 
     task_id: str = Field(..., description="任务唯一 ID")
+    idempotency_key: Optional[str] = Field(default=None, exclude=True)
     owner: str = Field(default="anonymous", description="任务归属（本期占位，鉴权属 P2）")
     session_id: str = Field(..., description="归属会话")
     parent_session: Optional[str] = Field(

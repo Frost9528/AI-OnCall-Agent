@@ -206,7 +206,9 @@ class AIOpsService:
         time_anchor: Optional[datetime] = None,
         trigger: TriggerSource = TriggerSource.MANUAL,
         registry: Optional[TaskRegistry] = None,
-    ) -> TaskRecord:
+        idempotency_key: Optional[str] = None,
+        return_created: bool = False,
+    ) -> TaskRecord | tuple[TaskRecord, bool]:
         """登记一个新排障任务。
 
         thread_id 用 task_id（不再是 session_id）——同一会话可先后有多个任务，
@@ -229,8 +231,14 @@ class AIOpsService:
             checkpoint_ref=task_id,
             time_anchor=time_anchor or datetime.now(timezone.utc),
             trigger=trigger,
+            idempotency_key=idempotency_key,
         )
-        return (registry or task_registry).create(task)
+        task, created = (registry or task_registry).create_idempotent(task)
+        if created:
+            logger.info(f"任务已登记: {task.task_id} (session={task.session_id}, status={task.status.value})")
+        if return_created:
+            return task, created
+        return task
 
     def get_task(self, task_id: str) -> Optional[TaskRecord]:
         return task_registry.get(task_id)
@@ -468,10 +476,21 @@ class AIOpsService:
             }
             return
 
-        # 恢复即重新进入 running
-        task_registry.update_status(task_id, TaskStatus.RUNNING)
+        claimed = task_registry.transition_ejected_to_running(task_id)
+        if claimed is None:
+            current = task_registry.get(task_id)
+            if current is None:
+                yield {"type": "error", "stage": "not_found", "message": f"任务不存在: {task_id}"}
+            else:
+                yield {
+                    "type": "error",
+                    "stage": "invalid_state",
+                    "message": f"任务状态为 {current.status.value}，仅 ejected 任务可恢复",
+                    "task_id": task_id,
+                }
+            return
 
-        async for event in self.run_task(task, resume=True):
+        async for event in self.run_task(claimed, resume=True):
             yield event
 
     def cancel_task(self, task_id: str) -> Optional[TaskRecord]:

@@ -59,6 +59,7 @@ class TaskDispatcher:
         owner: str = "anonymous",
         parent_session: Optional[str] = None,
         time_anchor: Optional[datetime] = None,
+        idempotency_key: Optional[str] = None,
         background: Optional[bool] = None,
     ) -> TaskRecord:
         """建任务并（可选）后台执行；返回含 task_id 的记录。
@@ -66,6 +67,11 @@ class TaskDispatcher:
         单飞行约束仅对 CHAT 生效（设计 §4.0）：同会话已有 running 排障时，
         不新建任务，直接返回已有任务。
         """
+        if idempotency_key:
+            existing = self.registry.get_by_idempotency_key(idempotency_key)
+            if existing:
+                return existing
+
         if trigger is TriggerSource.CHAT:
             existing = self.registry.find_running_by_session(session_id)
             if existing:
@@ -74,7 +80,7 @@ class TaskDispatcher:
 
         from app.services.aiops_service import aiops_service
 
-        task = aiops_service.create_task(
+        task, created = aiops_service.create_task(
             user_input,
             session_id=session_id,
             owner=owner,
@@ -82,7 +88,12 @@ class TaskDispatcher:
             time_anchor=time_anchor or datetime.now(timezone.utc),
             trigger=trigger,
             registry=self.registry,
+            idempotency_key=idempotency_key,
+            return_created=True,
         )
+
+        if not created:
+            return task
 
         runner = self._runner or self._default_runner
         use_bg = config.task_background_execution if background is None else background
@@ -91,7 +102,7 @@ class TaskDispatcher:
             self._spawn(self._guarded(task, runner))
             logger.info(f"[任务 {task.task_id}] 已后台派发 trigger={trigger.value}")
         else:
-            await runner(task)
+            await self._guarded(task, runner)
 
         return task
 
@@ -105,9 +116,11 @@ class TaskDispatcher:
         会被 find_running_by_session 漏掉（单飞行失效），且下次扫描会重复续跑。
         """
         from app.services.aiops_service import aiops_service
-        from app.models.task import TaskStatus
 
-        self.registry.update_status(task.task_id, TaskStatus.RUNNING)
+        claimed = self.registry.transition_ejected_to_running(task.task_id)
+        if claimed is None:
+            raise ValueError("Only ejected tasks can resume")
+        task = claimed
 
         async def runner(t: TaskRecord) -> None:
             async for _ in aiops_service.run_task(t, resume=True):
@@ -117,7 +130,7 @@ class TaskDispatcher:
         if use_bg:
             self._spawn(self._guarded(task, runner))
         else:
-            await runner(task)
+            await self._guarded(task, runner)
 
     async def _guarded(self, task: TaskRecord, runner: Runner) -> None:
         """后台执行的安全包装：异常必须被接住，否则静默丢失。"""
@@ -131,7 +144,7 @@ class TaskDispatcher:
             logger.warning(f"[任务 {task.task_id}] 后台执行被取消（服务关闭），标为可恢复")
             self.registry.mark_ejected(task.task_id)
             raise                      # 不要吞掉取消信号，否则会破坏 asyncio 的关闭语义
-        except BaseException as e:          # 含 CancelledError（服务关闭）
+        except Exception as e:
             logger.error(f"[任务 {task.task_id}] 后台执行异常: {e}", exc_info=True)
             self.registry.update_status(task.task_id, TaskStatus.FAILED)
             await self._notify_settled(task.task_id)
@@ -139,10 +152,15 @@ class TaskDispatcher:
             await self._notify_settled(task.task_id)
 
     async def _notify_settled(self, task_id: str) -> None:
-        """任务结算后的投递钩子（Task 5 前为 no-op）。"""
+        """标记已结束的 chat 任务待投递。"""
         try:
-            from app.services import task_delivery
-            await task_delivery.task_delivery.mark_pending(task_id)
+            from app.services.task_delivery import task_delivery
+            delivery = task_delivery
+            if delivery.registry is self.registry:
+                await delivery.mark_pending(task_id)
+            else:
+                from app.services.task_delivery import TaskDelivery
+                await TaskDelivery(registry=self.registry).mark_pending(task_id)
         except Exception as e:                  # 投递不可用不应影响任务
             logger.warning(f"[任务 {task_id}] 投递钩子失败: {e}")
 

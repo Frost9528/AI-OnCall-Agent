@@ -5,23 +5,29 @@
 """
 
 from langchain_core.tools import tool
+from langchain.tools import ToolRuntime
 from loguru import logger
 
 from app.services.task_registry import task_registry
 
 
 @tool
-def get_task_report(task_id: str) -> str:
+async def get_task_report(task_id: str, runtime: ToolRuntime) -> str:
     """获取某个排障任务的完整报告。
 
     Args:
         task_id: 任务 ID（如 t-8f3a1b2c3d4e）
+        runtime: 当前对话运行时，用于限制任务可见范围
 
     当用户追问"刚才那个排障结果怎么样""报告里说了什么"时使用本工具。
     """
     task = task_registry.get(task_id)
     if task is None:
         return f"任务不存在: {task_id}。请确认 task_id 是否正确。"
+    runtime_config = getattr(runtime, "config", None) or {}
+    session_id = (runtime_config.get("configurable") or {}).get("thread_id")
+    if not session_id or (task.parent_session or task.session_id) != session_id:
+        return "任务不存在: 该任务不属于当前会话。"
     if not task.report:
         return (
             f"任务 {task_id} 尚未产出报告（当前状态: {task.status.value}）。"

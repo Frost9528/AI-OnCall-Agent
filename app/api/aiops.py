@@ -3,9 +3,12 @@ AIOps 智能运维接口
 """
 
 import json
-from fastapi import APIRouter, HTTPException, Query
+import hmac
+from fastapi import APIRouter, Header, HTTPException, Query
 from sse_starlette.sse import EventSourceResponse
 from loguru import logger
+
+from app.config import config
 
 from app.models.aiops import AIOpsRequest, TaskResumeRequest, TaskSubmitRequest
 from app.models.task import TaskStatus
@@ -14,6 +17,15 @@ from app.services.task_registry import task_registry
 from app.utils.input_validation import validate_user_input
 
 router = APIRouter()
+
+
+def require_task_api_access(authorization: str | None) -> None:
+    if not config.task_api_token:
+        raise HTTPException(status_code=503, detail="Task API authentication is not configured")
+    # compare_digest 对含非 ASCII 的 str 会抛 TypeError（→ 500）；先编码为 bytes 再比较
+    expected = f"Bearer {config.task_api_token}".encode("utf-8")
+    if not authorization or not hmac.compare_digest(authorization.encode("utf-8"), expected):
+        raise HTTPException(status_code=401, detail="Unauthorized")
 
 
 @router.post("/aiops")
@@ -165,7 +177,7 @@ def _sse(event: dict) -> dict:
 
 
 @router.post("/aiops/tasks")
-async def submit_task(request: TaskSubmitRequest):
+async def submit_task(request: TaskSubmitRequest, authorization: str | None = Header(default=None)):
     """提交一个排障任务，返回 task_id（供后续 resume / 查状态）。
 
     与 `/aiops` 的区别：本接口先登记任务再执行，因此客户端**同步拿到 task_id**，
@@ -179,6 +191,7 @@ async def submit_task(request: TaskSubmitRequest):
       -d '{"session_id": "session-123"}' --no-buffer
     ```
     """
+    require_task_api_access(authorization)
     session_id = request.session_id or "default"
 
     # 校验先于建任务：不通过直接 400，不产生垃圾任务记录
@@ -223,7 +236,8 @@ async def submit_task(request: TaskSubmitRequest):
 
 
 @router.post("/aiops/resume")
-async def resume_task(request: TaskResumeRequest):
+async def resume_task(request: TaskResumeRequest, authorization: str | None = Header(default=None)):
+    require_task_api_access(authorization)
     """从断点恢复一个被中断的任务。
 
     - 仅对**未终态**任务生效（终态 done/failed/cancelled/expired 会拒绝）；
@@ -244,10 +258,10 @@ async def resume_task(request: TaskResumeRequest):
         raise HTTPException(status_code=404, detail=f"任务不存在: {request.task_id}")
     if request.owner is not None and task.owner != request.owner:
         raise HTTPException(status_code=403, detail="无权恢复该任务")
-    if task.is_terminal:
+    if task.status is not TaskStatus.EJECTED:
         raise HTTPException(
             status_code=409,
-            detail=f"任务已处于终态（{task.status.value}），不可恢复",
+            detail=f"任务状态为 {task.status.value}，仅 ejected 任务可恢复",
         )
 
     async def event_generator():
@@ -271,7 +285,12 @@ async def resume_task(request: TaskResumeRequest):
 
 
 @router.get("/aiops/tasks")
-async def list_tasks(status: str | None = None, limit: int = Query(50, ge=1, le=200)):
+async def list_tasks(
+    status: str | None = None,
+    limit: int = Query(50, ge=1, le=200),
+    authorization: str | None = Header(default=None),
+):
+    require_task_api_access(authorization)
     """列出排障任务（看板）。status 逗号分隔，如 status=running,done。"""
     statuses = []
     if status:
@@ -285,7 +304,8 @@ async def list_tasks(status: str | None = None, limit: int = Query(50, ge=1, le=
 
 
 @router.get("/aiops/tasks/resumable")
-async def list_resumable_tasks():
+async def list_resumable_tasks(authorization: str | None = Header(default=None)):
+    require_task_api_access(authorization)
     """待恢复任务清单（只含 ejected；终态不重复出现）。
 
     每条含 ``interrupt`` 字段：``auto`` 表示现场无副作用、可直接续跑；
@@ -305,7 +325,8 @@ async def list_resumable_tasks():
 
 
 @router.get("/aiops/tasks/{task_id}")
-async def get_task(task_id: str):
+async def get_task(task_id: str, authorization: str | None = Header(default=None)):
+    require_task_api_access(authorization)
     """查询单个任务的状态与结果。
 
     这是"任务跑完后结果去哪了"的答案：终态任务的 ``report`` 字段带最终报告正文。

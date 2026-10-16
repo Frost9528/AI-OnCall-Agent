@@ -24,6 +24,7 @@ from typing_extensions import TypedDict
 
 from app.config import config
 from app.core.llm_factory import llm_factory
+from app.models.task import TaskStatus
 from app.services.task_delivery import task_delivery
 from app.tools import DEFAULT_LOCAL_AGENT_TOOLS
 from app.agent.aiops.failure import classify_failure, is_retryable
@@ -106,8 +107,7 @@ async def inject_task_delivery_middleware(state, runtime):
     """
     if not config.context_inject_enabled:
         return None
-    cfg = getattr(runtime, "config", None) or {}
-    session_id = (cfg.get("configurable") or {}).get("thread_id")
+    session_id = getattr(getattr(runtime, "execution_info", None), "thread_id", None)
     if not session_id:
         return None
     try:
@@ -117,9 +117,12 @@ async def inject_task_delivery_middleware(state, runtime):
         return None
     if not pending:
         return None
-    lines = ["[系统] 你此前派发的排障任务已完成："]
+    lines = ["[系统] 你此前派发的排障任务状态更新："]
     for t in pending:
-        lines.append(f"- {t.task_id}（状态 {t.status.value}），可用 get_task_report 查看详情")
+        if t.status is TaskStatus.FAILED:
+            lines.append(f"- {t.task_id}（排障失败），可用 get_task_report 查看详情")
+        else:
+            lines.append(f"- {t.task_id}（状态 {t.status.value}），可用 get_task_report 查看详情")
     return {"messages": [SystemMessage(content="\n".join(lines))]}
 
 

@@ -35,8 +35,12 @@ async def apply_startup_recovery() -> None:
     if not config.auto_resume_on_startup:
         return
     for task in aiops_service.list_resumable_tasks():
-        if task.interrupt is InterruptMode.AUTO:
+        if task.interrupt is not InterruptMode.AUTO:
+            continue
+        try:
             await dispatcher.resume(task)
+        except Exception as e:          # 单个任务续跑失败不应阻断启动
+            logger.warning(f"[任务 {task.task_id}] 自动续跑失败，跳过: {e}")
 
 
 @asynccontextmanager

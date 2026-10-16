@@ -48,6 +48,22 @@ def test_consume_is_idempotent(tmp_path):
     assert reg.get("x").delivery_attempts == 1, "同一通知只能被认领一次"
 
 
+def test_pending_delivery_routes_by_parent_session_not_worker_session(tmp_path):
+    reg = TaskRegistry(str(tmp_path / "parent-routing.sqlite"))
+    delivery = TaskDelivery(registry=reg)
+    reg.create(TaskRecord(
+        task_id="parent-routed", session_id="worker-session", thread_id="parent-routed",
+        input="x", status=TaskStatus.DONE, trigger=TriggerSource.CHAT,
+        parent_session="chat-session",
+    ))
+    asyncio.run(delivery.mark_pending("parent-routed"))
+
+    claimed = asyncio.run(delivery.consume_pending_for_session("chat-session"))
+
+    assert [task.task_id for task in claimed] == ["parent-routed"]
+    assert reg.get("parent-routed").delivery_status is DeliveryStatus.SENT
+
+
 def test_delivery_failure_does_not_rollback_task_status(tmp_path):
     """投递失败不得把任务从 done 改回其它状态。"""
     reg = TaskRegistry(str(tmp_path / "t.sqlite"))

@@ -52,9 +52,11 @@ class TaskResumeRequest(BaseModel):
 
 
 class AlertmanagerPayload(BaseModel):
-    """Alertmanager webhook 载荷（只取需要的字段，宽容匹配）。"""
+    """Alertmanager webhook payload, including its deduplication fingerprint."""
     status: str = "firing"
     alerts: List[Dict[str, Any]] = Field(default_factory=list)
+    groupKey: Optional[str] = None
+    receiver: Optional[str] = None
 
 
 class AlertInfo(BaseModel):
