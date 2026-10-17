@@ -93,3 +93,6 @@ logs/
 .idea/
 .vscode/
 
+# RAG 评估运行产物（报告随运行变化，不入库）
+evals/reports/
+
