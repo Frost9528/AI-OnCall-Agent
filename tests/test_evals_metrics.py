@@ -97,3 +97,71 @@ def test_aggregate_refusal_no_answerable_returns_none():
     out = aggregate_refusal([{"category": "no_answer", "refused": True}])
     assert out["over_refusal_rate"] is None
     assert out["refusal_accuracy"] == 1.0
+
+
+# --- dataset_loader / common ---
+import json
+from pathlib import Path
+
+import pytest
+
+from evals.common import REPO_ROOT, to_rel_source
+from evals.dataset_loader import load_dataset
+
+
+def test_to_rel_source_absolute_to_repo_relative():
+    abs_path = (REPO_ROOT / "aiops-docs" / "cpu_high_usage.md").resolve().as_posix()
+    assert to_rel_source(abs_path) == "aiops-docs/cpu_high_usage.md"
+
+
+def test_to_rel_source_passthrough_when_outside_repo():
+    assert to_rel_source("/some/other/place.txt") == "/some/other/place.txt"
+
+
+def _write(tmp_path, rows):
+    p = tmp_path / "ds.jsonl"
+    p.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in rows), encoding="utf-8")
+    return str(p)
+
+
+def _valid_row(**over):
+    row = {
+        "id": "fact-x-001",
+        "category": "fact",
+        "question": "Q?",
+        "expected_sources": ["aiops-docs/cpu_high_usage.md"],
+        "reference_answer": "A",
+        "notes": "",
+    }
+    row.update(over)
+    return row
+
+
+def test_load_dataset_valid(tmp_path):
+    samples = load_dataset(_write(tmp_path, [_valid_row()]))
+    assert len(samples) == 1
+    assert samples[0].category == "fact"
+    assert samples[0].expected_sources == ["aiops-docs/cpu_high_usage.md"]
+
+
+def test_load_dataset_rejects_bad_category(tmp_path):
+    with pytest.raises(ValueError, match="category"):
+        load_dataset(_write(tmp_path, [_valid_row(category="bogus")]))
+
+
+def test_load_dataset_rejects_duplicate_id(tmp_path):
+    with pytest.raises(ValueError, match="重复"):
+        load_dataset(_write(tmp_path, [_valid_row(), _valid_row()]))
+
+
+def test_load_dataset_no_answer_must_have_empty_expected(tmp_path):
+    with pytest.raises(ValueError, match="expected_sources"):
+        load_dataset(_write(tmp_path, [_valid_row(category="no_answer")]))
+
+
+def test_committed_dataset_loads_and_meets_quota():
+    path = REPO_ROOT / "evals" / "datasets" / "rag_eval_set.jsonl"
+    samples = load_dataset(str(path))
+    assert len(samples) >= 30
+    cats = {s.category for s in samples}
+    assert {"fact", "cross_doc", "no_answer"} <= cats
