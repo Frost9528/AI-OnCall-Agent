@@ -1,4 +1,10 @@
-"""评估入口：python -m evals.run"""
+"""评估入口：python -m evals.run
+
+注意：app/evals 的重依赖（Milvus / DashScope embedding / ChatOpenAI / 各服务单例）在
+**导入时**就会初始化。为保证 `--help` 与 `_preflight` 的“快速失败”在无 key / 无 Milvus
+的环境下依然可用（不静默降级），本入口只保留模块安全的 import，把其余重 import 延迟到
+真正需要它们的函数内部（_preflight / main_async）。
+"""
 from __future__ import annotations
 
 import argparse
@@ -8,10 +14,7 @@ import sys
 from loguru import logger
 
 from app.config import config
-from evals import answer_eval, retrieval_eval
-from evals.corpus import ensure_corpus
 from evals.dataset_loader import CATEGORIES, load_dataset
-from evals.report import build_report, print_summary, write_report
 
 DEFAULT_DATASET = "evals/datasets/rag_eval_set.jsonl"
 
@@ -41,6 +44,11 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 async def main_async(args: argparse.Namespace) -> dict:
+    # 延迟导入：只有真正要跑评估时才加载重依赖（见模块 docstring）。
+    from evals import answer_eval, retrieval_eval
+    from evals.corpus import ensure_corpus
+    from evals.report import build_report, print_summary, write_report
+
     samples = load_dataset(args.dataset)
     if args.category != "all":
         samples = [s for s in samples if s.category == args.category]
