@@ -41,6 +41,10 @@ async def lifespan(app: FastAPI):
         resumable = aiops_service.startup_scan()
         logger.info(f"🧾 待恢复任务数: {len(resumable)}")
 
+        # 判定各待恢复任务的可恢复性（auto 可直接续 / manual 需人工决策）
+        if resumable:
+            await aiops_service.classify_interrupt_modes(resumable)
+
         logger.info("=" * 60)
 
         yield

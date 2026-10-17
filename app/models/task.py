@@ -49,6 +49,18 @@ TERMINAL_STATUSES = frozenset({
 RESUMABLE_STATUSES = frozenset({TaskStatus.EJECTED})
 
 
+class InterruptMode(str, Enum):
+    """中断任务的可恢复性判定（E5）。
+
+    - ``auto``：现场无副作用，无决策点，可直接续跑（当前工具只读，多数属于此类）；
+    - ``manual``：现场含需人工判断的收尾/换路，或未来接写侧工具后的幂等风险，
+      自动续跑不安全，须显式决策后再续。
+    """
+
+    AUTO = "auto"
+    MANUAL = "manual"
+
+
 class TaskRecord(BaseModel):
     """一条排障任务的注册信息"""
 
@@ -56,7 +68,13 @@ class TaskRecord(BaseModel):
     owner: str = Field(default="anonymous", description="任务归属（本期占位，鉴权属 P2）")
     session_id: str = Field(..., description="归属会话")
     parent_session: Optional[str] = Field(
-        default=None, description="完成回填目标（触发本任务的主对话会话）"
+        default=None,
+        description=(
+            "完成回填目标（触发本任务的主对话会话）。"
+            "**当前仅落库、无消费方**：回填的前提是 supervisor 化（对话 Agent 把 "
+            "run_aiops 当工具调），该结构本期未实现，故父子当前取同一值，"
+            "待 supervisor 化后消费（见 ENGINEERING-DESIGN §4.0/§4.3②E3）。"
+        ),
     )
     thread_id: str = Field(..., description="对应的 graph thread_id（恢复用）")
     input: str = Field(..., description="任务输入（排障目标描述）")
@@ -73,6 +91,13 @@ class TaskRecord(BaseModel):
         default=None, description="原任务时间窗；时间敏感查询恢复时沿用而非按 now"
     )
     result_ref: Optional[str] = Field(default=None, description="完成后的报告引用")
+    report: Optional[str] = Field(
+        default=None, description="完成后的最终报告正文（供任务查询接口返回）"
+    )
+    interrupt: InterruptMode = Field(
+        default=InterruptMode.MANUAL,
+        description="恢复安全性：auto 可直接续跑，manual 需人工决策后显式续",
+    )
 
     def touch(self) -> None:
         """更新 updated_at。"""

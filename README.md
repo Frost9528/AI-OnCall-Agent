@@ -137,7 +137,11 @@ Get-ChildItem aiops-docs\*.md | ForEach-Object { curl.exe -s -X POST http://loca
 | 普通对话 | POST | `/api/chat` | 一次性返回 |
 | 流式对话 | POST | `/api/chat_stream` | SSE 流式输出 |
 | AIOps 诊断 | POST | `/api/aiops` | 自动故障诊断（流式） |
-| 文件上传 | POST | `/api/upload` | 上传并索引文档 |
+| 提交排障任务 | POST | `/api/aiops/tasks` | 先登记任务、同步返回 `task_id`（供 resume / 查结果） |
+| 恢复中断任务 | POST | `/api/aiops/resume` | 凭 `task_id` 从断点续跑，不重放已完成步 |
+| 待恢复清单 | GET | `/api/aiops/tasks/resumable` | 只列 `ejected`；含 `interrupt`（auto/manual） |
+| 查询任务结果 | GET | `/api/aiops/tasks/{task_id}` | 状态 + `report` 最终报告正文 |
+| 文件上传 | POST | `/api/upload` | 上传并索引文档（PDF/图片走版面解析） |
 | 健康检查 | GET | `/api/health` | 服务状态检查 |
 
 ### 使用示例
@@ -159,6 +163,24 @@ curl -X POST "http://localhost:9900/api/aiops" \
   -H "Content-Type: application/json" \
   -d '{"session_id":"session-123"}' \
   --no-buffer
+```
+
+**长任务的提交与取回**（不靠长连维持，断了也能拿到结果）：
+
+```bash
+# 1) 提交，同步拿到 task_id
+TASK=$(curl -s -X POST "http://localhost:9900/api/aiops/tasks" \
+  -H "Content-Type: application/json" \
+  -d '{"session_id":"session-123"}' --no-buffer | head -1)
+
+# 2) 连接断了也没关系 —— 凭 task_id 查状态与最终报告
+curl -s "http://localhost:9900/api/aiops/tasks/<task_id>" | python -m json.tool
+
+# 3) 若任务被中断（ejected），先看待恢复清单再续跑
+curl -s "http://localhost:9900/api/aiops/tasks/resumable"
+curl -X POST "http://localhost:9900/api/aiops/resume" \
+  -H "Content-Type: application/json" \
+  -d '{"task_id":"<task_id>"}' --no-buffer
 ```
 
 ## 📁 项目结构

@@ -20,7 +20,7 @@ from typing import List, Optional
 from loguru import logger
 
 from app.config import config
-from app.models.task import RESUMABLE_STATUSES, TaskRecord, TaskStatus
+from app.models.task import InterruptMode, RESUMABLE_STATUSES, TaskRecord, TaskStatus
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS aiops_tasks (
@@ -36,11 +36,19 @@ CREATE TABLE IF NOT EXISTS aiops_tasks (
     checkpoint_ref TEXT,
     plan_version   INTEGER NOT NULL DEFAULT 1,
     time_anchor    TEXT,
-    result_ref     TEXT
+    result_ref     TEXT,
+    interrupt      TEXT NOT NULL DEFAULT 'manual',
+    report         TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_aiops_tasks_status ON aiops_tasks(status);
 CREATE INDEX IF NOT EXISTS idx_aiops_tasks_session ON aiops_tasks(session_id);
 """
+
+#: 增量迁移：老库缺列时补上（CREATE TABLE IF NOT EXISTS 不会改已存在的表）
+_MIGRATIONS = (
+    ("interrupt", "ALTER TABLE aiops_tasks ADD COLUMN interrupt TEXT NOT NULL DEFAULT 'manual'"),
+    ("report", "ALTER TABLE aiops_tasks ADD COLUMN report TEXT"),
+)
 
 
 class TaskRegistry:
@@ -69,6 +77,16 @@ class TaskRegistry:
     def _init_schema(self) -> None:
         with self._lock, self._connect() as conn:
             conn.executescript(_SCHEMA)
+            self._apply_migrations(conn)
+
+    @staticmethod
+    def _apply_migrations(conn: sqlite3.Connection) -> None:
+        """补齐老库缺失的列（幂等）。"""
+        existing = {row["name"] for row in conn.execute("PRAGMA table_info(aiops_tasks)")}
+        for column, ddl in _MIGRATIONS:
+            if column not in existing:
+                conn.execute(ddl)
+                logger.info(f"任务表迁移：新增列 {column}")
 
     # ---------- 写 ----------
 
@@ -80,8 +98,8 @@ class TaskRegistry:
                 INSERT INTO aiops_tasks (
                     task_id, owner, session_id, parent_session, thread_id, input,
                     status, created_at, updated_at, checkpoint_ref, plan_version,
-                    time_anchor, result_ref
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    time_anchor, result_ref, interrupt, report
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
                     task.task_id,
@@ -97,6 +115,8 @@ class TaskRegistry:
                     task.plan_version,
                     task.time_anchor.isoformat() if task.time_anchor else None,
                     task.result_ref,
+                    task.interrupt.value,
+                    task.report,
                 ),
             )
         logger.info(f"任务已登记: {task.task_id} (session={task.session_id}, status={task.status.value})")
@@ -109,6 +129,7 @@ class TaskRegistry:
         *,
         result_ref: Optional[str] = None,
         plan_version: Optional[int] = None,
+        report: Optional[str] = None,
     ) -> Optional[TaskRecord]:
         """更新任务状态；返回更新后的记录（不存在则 None）。"""
         now = datetime.now(timezone.utc).isoformat()
@@ -120,6 +141,9 @@ class TaskRegistry:
         if plan_version is not None:
             sets.append("plan_version = ?")
             params.append(plan_version)
+        if report is not None:
+            sets.append("report = ?")
+            params.append(report)
         params.append(task_id)
 
         with self._lock, self._connect() as conn:
@@ -135,6 +159,20 @@ class TaskRegistry:
     def mark_ejected(self, task_id: str) -> Optional[TaskRecord]:
         """把未收尾的 running 任务标为 ejected（进程/服务中断的恢复候选）。"""
         return self.update_status(task_id, TaskStatus.EJECTED)
+
+    def set_interrupt_mode(
+        self, task_id: str, mode: InterruptMode
+    ) -> Optional[TaskRecord]:
+        """记录任务的可恢复性判定（auto 可直接续 / manual 需人工决策）。"""
+        with self._lock, self._connect() as conn:
+            cur = conn.execute(
+                "UPDATE aiops_tasks SET interrupt = ?, updated_at = ? WHERE task_id = ?",
+                (mode.value, datetime.now(timezone.utc).isoformat(), task_id),
+            )
+            if cur.rowcount == 0:
+                return None
+        logger.info(f"任务 {task_id} 恢复模式: {mode.value}")
+        return self.get(task_id)
 
     # ---------- 读 ----------
 
@@ -247,6 +285,8 @@ class TaskRegistry:
             plan_version=row["plan_version"],
             time_anchor=_dt(row["time_anchor"]),
             result_ref=row["result_ref"],
+            interrupt=InterruptMode(row["interrupt"] or InterruptMode.MANUAL.value),
+            report=row["report"],
         )
 
 
